@@ -1,7 +1,9 @@
 # Tactical Drone C2 Server Specification
 
-This document provides the complete architectural details, MQTT topic structure, and JSON payload schemas for any backend agent, server application, or operator console interacting with the `recreate2` tactical drone fleet.
-
+> **Changelog — 2026-07-20 (Arm/Disarm Safety Checks & LED Blink)**
+> - Replaced physical Virtual Stick CSC sequence for `ARM` / `START_ENGINE` with pre-flight connection, battery (min 20%), compass, and device health checks, followed by blinking the LEDs twice to indicate a successful virtual arm state.
+> - Modified `DISARM` to set the engine state to inactive instantly and update UI status indicator.
+>
 > **Changelog — 2026-07-20 (Audit #12 Security, Safety, & Reliability Hardening)**
 > - **M-10 (Critical):** Fixed MQTT service executor shutdown by separating `disconnect()` from a new `destroy()` method. Executor is kept alive across reconnect/disconnect events, and shut down only in `MainActivity.onDestroy()`.
 > - **H-09 (High):** Added connection-loss checks in the Virtual Stick control loop. Loop aborts automatically if connection is lost.
@@ -9,8 +11,47 @@ This document provides the complete architectural details, MQTT topic structure,
 > - **M-11 (Medium):** Replaced mock pairing button on Home screen with actual remote controller pairing flow.
 > - **L-09 (Low):** Cleaned up unused and unassigned `tacticalZonePolygon` field.
 > - **L-10 (Low):** Cleaned up legacy and concept resources (`MainActivity_new.kt`, `TestRtmp.kt`, etc.).
+>
+> **Critical (C):**
+> - **C-01:** All DJI SDK `performAction` calls inside the Virtual Stick background loop are now wrapped in `runOnUiThread`.
+> - **C-02:** `executeTacticalMission` now uses a separate `executionWaypoints` list — the UI `tacticalWaypoints` list is no longer mutated during flight.
+> - **C-03:** `expandOrbitWaypoints` now checks `movementMethod == "orbit"` (was checking the wrong field `actionType`).
+> - **C-04:** Signal-loss RTH now requires `&& isFlying` guard — cannot trigger on ground.
+>
+> **High (H):**
+> - **H-01:** `handleMqttCommand` no longer runs fully on the UI thread — only explicit UI calls use `runOnUiThread`.
+> - **H-02:** `START_ENGINE` `COMPLETED` receipt is published after the CSC sequence finishes, not before.
+> - **H-03:** `messageArrived` offloads to executor thread to avoid blocking Paho internals.
+> - **H-04:** `updateFlightPathLine` debounced to 500ms (max 2 Hz) from 10 Hz.
+> - **H-05:** `orbitCircleOverlays` changed to `CopyOnWriteArrayList`.
+> - **H-06:** Log scroll operator precedence fixed.
+> - **H-07:** Pre-flight battery/GPS fallback changed from `100/15` to `0/0` (fail-safe).
+> - **H-08:** `executor.shutdown()` called in `MqttService.disconnect()`.
+>
+> **Medium (M):**
+> - **M-01:** Orbit button WPs now have `movementMethod = "orbit"` set correctly.
+> - **M-02:** VS mission loop thread named `"VS-MissionLoop"`.
+> - **M-03:** (Pre-existing CopyOnWriteArrayList on `tacticalWaypoints`).
+> - **M-04:** `cancelActiveMission()` clears orbit circle overlays.
+> - **M-05:** `drawKmzRouteOnMap` excludes `flightPathPolyline` and orbit overlays.
+> - **M-06:** `isPointInPolygon` now uses native Spherical Mercator Math projection to eliminate polar distortion and safely handle complex concave shapes, rather than raw planar lat/lon ray-casting.
+> - **M-07:** Takeoff wait thread stored and interrupted in `onDestroy`.
+> - **M-08:** `MqttService.connect()` cancels previous `connectFuture` before starting new one.
+> - **M-09:** Grid preview recalculation debounced 300ms.
+>
+> **Low (L):**
+> - **L-01:** Removed deprecated `package` attribute from `AndroidManifest.xml`.
+> - **L-02 (Deferred):** Lens buttons (Wide/Zoom/IR) remain stubs. DJI SDK V5 uses a different VideoStream source API than V4 (`CameraKey.KeyCameraStreamSource` is unresolved).
+> - **L-03:** AR home point uses `cameraFov` field instead of hardcoded `84.0`.
+> - **L-04:** `logHistory` changed to thread-safe `StringBuffer`.
+> - **L-05:** `droneClickCount` reset is guaranteed in all code paths.
+> - **L-06:** `setBuiltInZoomControls` → `zoomController.setVisibility`.
+> - **L-07:** `polygon.points` → `polygon.actualPoints`.
+> - **L-08:** MQTT credentials now stored in `EncryptedSharedPreferences` (AES256-GCM).
 
 ---
+
+
 
 ## 1. Network Architecture
 
@@ -216,8 +257,10 @@ The drone publishes mission lifecycle events as they happen. All events share th
 | `KMZ_FINISHED` | — | KMZ mission completed all waylines. Auto-RTH is triggered after this event. |
 | `KMZ_START_FAILED` | `error: String` | Attempt to start KMZ mission failed. |
 | `AUTO_RTH_STARTED` | — | Automatic Return-to-Home triggered after mission completion. |
+| `MISSION_SAFETY_REJECTED` | `reason: String` | Mission execution was rejected due to a safety/conflict violation (e.g. altitude limits, speed boundaries, or crossing a designated No-Fly/Caution Zone polygon). |
 | `WEBODM_SYNC_STATUS` | `status: String`, `isError: Boolean` | Status update from the WebODM auto-upload process. |
 | `COMPASS_CALIBRATION_STATUS` | `status: String` | Real-time status/step of the compass calibration procedure. |
+| `TIMESYNC` | `ts1: Long`, `tc1: Long` | Active liveness probe echo. `ts1` is the server's requested token, `tc1` is the drone's current microsecond timestamp. |
 | `COMMAND_RECEIPT` | `command: String`, `status: String`, `transaction_id?: String`, `error_code?: Int`, `error_message?: String` | Lifecycle updates for C2 commands. Status can be `ACCEPTED`, `EXECUTING`, `COMPLETED`, `FAILED`, or `REJECTED`. |
 | `DIAGNOSTIC_WARNING` | `title: String`, `description: String`, `level: String` | Real-time warning/error alert from DJI's DeviceHealthManager. |
 | `KMZ_PROGRESS` | `waypoint_index: Int`, `wayline_id: Int`, `mission_file: String` | Real-time waypoint mission progress telemetry. |
@@ -261,6 +304,7 @@ The drone parses the `command` key to determine the action to execute.
 | `LAND` | — | — | Automated landing at the current GPS position. |
 | `START_ENGINE` / `ARM` | — | — | Performs pre-flight connection, battery, compass, and device health checks, then blinks the aircraft's LEDs twice to indicate a successful virtual arm state. Does not physically spin the motors. |
 | `DISARM` | — | — | Sets the engine state to inactive (virtual disarm) and updates UI status indicator immediately. |
+| `TIMESYNC` | — | `ts1: Long` | Echoes the timestamp back to the server in a `TIMESYNC` mission event as a liveness probe. |
 | `RTH` | — | — | Abort current mission and return to the home point. |
 | `SET_HOME` | — | — | Set the drone's current GPS position as the new Home Point. |
 | `ADD_WAYPOINT` | `lat`, `lon` | `alt`, `speed`, `heading`, `dwellTime`, `actionType`, `poiLat`, `poiLng`, `gimbalPitch`, `movementMethod` | Appends a single waypoint to the drone's active mission queue. Does not execute. |
@@ -335,7 +379,10 @@ Sets the drone's virtual arm state to inactive instantly and updates the UI.
   "dwellTime": 5.0,
   "actionType": "LOCK_POI",
   "poiLat": -6.2050,
-  "poiLng": 106.8165
+  "poiLng": 106.8165,
+  "movementMethod": "orbit",
+  "orbitRadius": 25.0,
+  "orbitLoops": 2
 }
 ```
 
@@ -353,14 +400,16 @@ Sets the drone's virtual arm state to inactive instantly and updates the UI.
       "dwellTime": 5.0,
       "actionType": "LOCK_POI",
       "poiLat": -6.205,
-      "poiLng": 106.805
+      "poiLng": 106.805,
+      "movementMethod": "linear"
     },
     {
       "lat": -6.210,
       "lng": 106.810,
       "alt": 50.0,
       "speed": 15.0,
-      "actionType": "START_RECORD"
+      "actionType": "START_RECORD",
+      "movementMethod": "spline"
     },
     {
       "lat": -6.220,
@@ -368,13 +417,16 @@ Sets the drone's virtual arm state to inactive instantly and updates the UI.
       "alt": 50.0,
       "speed": 10.0,
       "heading": 180.0,
-      "actionType": "PHOTO"
+      "actionType": "PHOTO",
+      "movementMethod": "orbit",
+      "orbitRadius": 30.0,
+      "orbitLoops": 3
     }
   ]
 }
 ```
 
-> **Note:** `UPLOAD_MISSION` uses `lng` (not `lon`) for the longitude key inside the waypoints array. `ADD_WAYPOINT` uses `lon`. This distinction is enforced by the client parser.
+> **Note:** `UPLOAD_MISSION` uses `lng` (not `lon`) for the longitude key inside the waypoints array. `ADD_WAYPOINT` uses `lon`. This distinction is enforced by the client parser. Both commands fully support trajectory control fields (`movementMethod`: `"linear" | "spline" | "orbit"`, `orbitRadius` (meters), `orbitLoops` (count)).
 
 **Execute Mission**
 ```json
@@ -605,7 +657,6 @@ When submitting waypoint lists via `UPLOAD_MISSION` or appending individual poin
 
 | Profile | `movementMethod` Value | Flight Behavior |
 | :--- | :--- | :--- |
-| **Linear** | `"default"` or `"linear"` | The drone flies a straight, direct path between waypoints, decelerating to a brief stop at each waypoint before proceeding. |
 | **Spline / Coordinated Turn** | `"spline"` | The drone flies a smooth, continuous curve through waypoints without stopping. This is achieved using WPML cubic-spline interpolation (`coordinateTurn` mode) to maximize battery efficiency and camera speed. |
 | **Orbit** | `"orbit"` | The drone performs a circular trajectory around a designated Point of Interest (POI), keeping the camera locked onto target coordinates. |
 
@@ -634,4 +685,3 @@ When submitting waypoint lists via `UPLOAD_MISSION` or appending individual poin
 - Updated KMZ pre-flight check logic to query KeyManager variables directly rather than parsing UI text fields.
 - Fixed stream cleanup logic in media downloader to close file streams and clean up temporary downloads on failure.
 - Prevented map route overlays from accidentally clearing the drone's real-time heading marker line.
-
