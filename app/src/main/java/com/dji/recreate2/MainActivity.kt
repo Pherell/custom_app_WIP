@@ -4041,10 +4041,10 @@ class MainActivity : AppCompatActivity() {
         val btnWebOdmConfig = dialog.findViewById<android.widget.Button>(R.id.btnWebOdmConfig)
         
         val sharedPrefs = getSharedPreferences("TacticalHUDConfig", android.content.Context.MODE_PRIVATE)
-        etServerIp?.setText(sharedPrefs.getString("mqttServerIp", "157.230.253.216"))
+        etServerIp?.setText(sharedPrefs.getString("mqttServerIp", "127.0.0.1"))
         etServerPort?.setText(sharedPrefs.getString("mqttServerPort", "1883"))
-        etMqttUser?.setText(sharedPrefs.getString("mqttUser", "dji-sdk"))
-        etMqttPass?.setText(sharedPrefs.getString("mqttPass", "hgDnj1SPDKXZo2b"))
+        etMqttUser?.setText(sharedPrefs.getString("mqttUser", "admin"))
+        etMqttPass?.setText(sharedPrefs.getString("mqttPass", "password"))
         
         // RTMP STREAMING BINDS
         val dBtnStartRtmp = dialog.findViewById<android.widget.Button>(R.id.btnStartRtmp)

@@ -60,7 +60,7 @@ The drone fleet communicates with a central Command and Control (C2) server excl
 - **Protocol:** MQTT v3.1.1
 - **Default Port:** `1883`
 - **Client Identifiers:** Each drone connects with a unique ID (e.g., `drone_alpha_01`). Configured via the **CFG Tab** in the Advanced System Menu (double-click the Drone Logo on the map).
-- **Credentials Configuration:** Fully configurable via the **CFG Tab** in the Advanced System Menu (double-click the Drone Logo on the map). Default fallback credentials are Username `dji-sdk` and Password `hgDnj1SPDKXZo2b`. Saved locally inside SharedPreferences as `mqttUser` and `mqttPass`.
+- **Credentials Configuration:** Fully configurable via the **CFG Tab** in the Advanced System Menu (double-click the Drone Logo on the map). Default fallback credentials are Username `admin` and Password `password`. Saved locally inside SharedPreferences as `mqttUser` and `mqttPass`.
 - **Automatic Reconnect:** The Android client reconnects automatically on connection loss.
 
 ### QoS Policy
@@ -594,7 +594,7 @@ The following alternate command strings are accepted and mapped to their canonic
 4. **Command Fight Prevention:** Send `CLEAR_MISSION` before `UPLOAD_MISSION` to guarantee a clean mission state. Calling `UPLOAD_MISSION` already clears the queue before loading, but explicit `CLEAR_MISSION` is recommended for safety-critical ops.
 5. **KMZ Payload Size:** `UPLOAD_KMZ` via MQTT is limited by broker `max_packet_size`. For files larger than ~100 KB, use `DOWNLOAD_KMZ` with a URL instead.
 6. **Pre-flight Gate:** `START_KMZ` has a built-in pre-flight check. If battery is below 20% or GPS satellites are fewer than 10, the mission is rejected and a `KMZ_PREFLIGHT_FAILED` event is published. The server should listen for this before assuming the mission started.
-7. **Authentication:** Configurable username and password (saved as `mqttUser` and `mqttPass` in SharedPreferences). Default fallback credentials are `dji-sdk` / `hgDnj1SPDKXZo2b`. Ensure you configure secure, custom broker credentials through the Advanced System Settings dialog for deployment outside a private lab network.
+7. **Authentication:** Configurable username and password (saved as `mqttUser` and `mqttPass` in SharedPreferences). Default fallback credentials are `admin` / `password`. Ensure you configure secure, custom broker credentials through the Advanced System Settings dialog for deployment outside a private lab network.
 
 ---
 

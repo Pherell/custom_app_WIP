@@ -28,10 +28,10 @@ s3 = boto3.client('s3',
 )
 
 # MQTT Default
-MQTT_BROKER = os.getenv("MQTT_BROKER", "157.230.253.216")
+MQTT_BROKER = os.getenv("MQTT_BROKER", "127.0.0.1")
 MQTT_PORT = int(os.getenv("MQTT_PORT", 1883))
-MQTT_USER = os.getenv("MQTT_USERNAME", "avarell")
-MQTT_PASS = os.getenv("MQTT_PASSWORD", "avAREl1z02B")
+MQTT_USER = os.getenv("MQTT_USERNAME", "admin")
+MQTT_PASS = os.getenv("MQTT_PASSWORD", "password")
 
 # --- UI STREAMLIT ---
 st.set_page_config(page_title="Tactical KMZ Hub", layout="wide", page_icon="🛰️")

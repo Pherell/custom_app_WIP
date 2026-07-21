@@ -53,7 +53,7 @@ class MqttService(context: Context) {
                         Log.w(tag, "EncryptedSharedPreferences unavailable, falling back to plaintext: ${e.message}")
                         appContext.getSharedPreferences("TacticalHUDConfig", Context.MODE_PRIVATE)
                     }
-                    val passStr = sharedPrefs.getString("mqttPass", "hgDnj1SPDKXZo2b") ?: "hgDnj1SPDKXZo2b"
+                    val passStr = sharedPrefs.getString("mqttPass", "password") ?: "password"
                     val passChars = passStr.toCharArray()
 
                     val options = MqttConnectOptions().apply {
@@ -61,7 +61,7 @@ class MqttService(context: Context) {
                         connectionTimeout = 30 // Fix BUG-17: Brittle MQTT connection timeout (increased from 10s)
                         keepAliveInterval = 60 // Fix BUG-17: Brittle MQTT keep-alive (increased from 20s)
                         isAutomaticReconnect = true
-                        userName = sharedPrefs.getString("mqttUser", "dji-sdk")
+                        userName = sharedPrefs.getString("mqttUser", "admin")
                         password = passChars
                     }
 

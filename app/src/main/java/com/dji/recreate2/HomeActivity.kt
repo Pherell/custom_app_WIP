@@ -79,7 +79,7 @@ class HomeActivity : AppCompatActivity() {
         
         btnServerSettings.setOnClickListener {
             val sharedPrefs = getSharedPreferences("TacticalHUDConfig", android.content.Context.MODE_PRIVATE)
-            val currentIp = sharedPrefs.getString("mqttServerIp", "157.230.253.216")
+            val currentIp = sharedPrefs.getString("mqttServerIp", "127.0.0.1")
             val currentPort = sharedPrefs.getString("mqttServerPort", "1883")
             
             val layout = android.widget.LinearLayout(this)
