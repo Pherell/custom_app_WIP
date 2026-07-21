@@ -3207,7 +3207,9 @@ class MainActivity : AppCompatActivity() {
                         
                         hw.put("signal_quality_percent", droneSignal)
                         hw.put("uplink_signal_quality_percent", upLinkQuality)
+                        hw.put("uplink_quality_percent", upLinkQuality)
                         hw.put("downlink_signal_quality_percent", downLinkQuality)
+                        hw.put("downlink_quality_percent", downLinkQuality)
                         hw.put("drone_type", cachedDroneType)
                         hw.put("drone_sn", cachedDroneSn)
                         payload.put("hardware", hw)
