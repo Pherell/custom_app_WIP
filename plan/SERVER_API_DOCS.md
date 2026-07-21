@@ -683,5 +683,44 @@ When submitting waypoint lists via `UPLOAD_MISSION` or appending individual poin
 - Fully implemented telemetry fields `is_flying` and `is_mission_executing` inside `flight_status` using KeyManager and internal state variables.
 - Fully implemented telemetry fields `gps_satellites` and `signal_quality_percent` inside `hardware` using live OcuSync and satellite counts.
 - Updated KMZ pre-flight check logic to query KeyManager variables directly rather than parsing UI text fields.
-- Fixed stream cleanup logic in media downloader to close file streams and clean up temporary downloads on failure.
 - Prevented map route overlays from accidentally clearing the drone's real-time heading marker line.
+
+---
+
+## 11. Tactical Gateway Error Code Reference
+
+When commands fail or get rejected, the drone publishes a `COMMAND_RECEIPT` event with `"status": "FAILED"` or `"status": "REJECTED"`. These events contain an `error_code` (Int) and `error_message` (String). The codes are split into **Custom Gateway Validation Errors** (negative integers) and **Native DJI SDK V5 Error Codes** (forwarded positive integers).
+
+### 11.1 Custom Gateway Errors (Negative Integers)
+
+These errors are generated locally within the Android gateway application's pre-flight checking, safety validation, and C2 command parsing systems:
+
+| Error Code | Occurs In | Description / Trigger Condition |
+| :--- | :--- | :--- |
+| **`-1`** | Any Command | **Command Parse Error:** The incoming JSON payload was malformed or could not be parsed. |
+| **`-10`** | `EXECUTE_MISSION` | **Already Running:** A waypoint mission is currently executing. You must stop or pause the active mission first. |
+| **`-11`** | `EXECUTE_MISSION` | **Empty Mission:** No waypoints are loaded in the queue to be executed. |
+| **`-12`** | `EXECUTE_MISSION` | **Safety Boundary Violation:** A waypoint fell inside a designated No-Fly Zone / restriction area. |
+| **`-13`** | `EXECUTE_MISSION` | **Battery Threshold Failure:** Battery level is below the pre-flight safety threshold (< 20%). |
+| **`-14`** | `EXECUTE_MISSION` | **GPS Signal Weakness:** Aircraft GPS satellite count is below the minimum safety threshold (< 10 satellites). |
+| **`-15`** | `EXECUTE_MISSION` | **Home Point Unlocked:** The drone has not established a valid GPS lock / Home Point required for takeoff. |
+| **`-16`** | `EXECUTE_MISSION` | **General Pre-flight Exception:** An unexpected runtime error occurred during the pre-flight routine. |
+| **`-20`** | `START_KMZ` | **KMZ Missing:** No KMZ flight path file has been loaded or selected on the device. |
+| **`-21`** | `START_KMZ` | **Invalid KMZ Format:** The loaded KMZ file contains no executable waylines inside its structure. |
+| **`-22`** | `DOWNLOAD_KMZ` | **Download Failure:** A connection exception or socket timeout occurred during KMZ file downloading. |
+| **`HTTP XXX`** | `DOWNLOAD_KMZ` | **HTTP Status Code:** Direct HTTP status code returned by the server (e.g., `404` for File Not Found, `500` for Internal Server Error). |
+| **`-404`** | Any Command | **Unknown Command:** The command name is not registered or supported by the Tactical Gateway parser. |
+
+### 11.2 Common Native DJI SDK V5 Errors (Positive Integers)
+
+These error codes are forwarded directly from the aircraft hardware components via the DJI SDK. Below are common codes representing hardware/sensor blocks:
+
+| Error Code | Category | Description |
+| :--- | :--- | :--- |
+| **`314`** / **`315`** | Flight Controller | Aircraft Compass Error or GPS State unhealthy (cannot takeoff/arm). |
+| **`316`** | Flight Controller | Motor arm/start failed (e.g., IMU initializing, gimbal self-check running, or RC stick command conflict). |
+| **`320`** | Flight Controller | Flight controller command rejected due to active Landing/RTH state. |
+| **`4001`** | Gimbal | Gimbal rotation command rejected (e.g., gimbal is physically locked or at structural rotation limit). |
+| **`8001`** | Camera | Camera state error (e.g., attempting to capture a photo while the SD Card is full, missing, or formatting). |
+| **`10001` - `10010`** | Waypoint Engine | KMZ File format parsing or validation errors (e.g., incorrect coordinate formats, illegal speed values). |
+| **`10101`** | Waypoint Engine | Waypoint mission execute failed (e.g., aircraft is currently too far from the starting waypoint). |
