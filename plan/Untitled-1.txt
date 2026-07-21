@@ -1,0 +1,839 @@
+[Developer](https://developer.dji.com/)
+- [Mobile SDK](https://developer.dji.com/mobile-sdk)
+- [UX SDK](https://developer.dji.com/ux-sdk)
+- [Onboard SDK](https://developer.dji.com/onboard-sdk)
+- [Payload SDK](https://developer.dji.com/payload-sdk)
+- [Windows SDK](https://developer.dji.com/windows-sdk)
+[Mobile SDK](https://developer.dji.com/mobile-sdk)
+[UX SDK](https://developer.dji.com/ux-sdk)
+[Onboard SDK](https://developer.dji.com/onboard-sdk)
+[Payload SDK](https://developer.dji.com/payload-sdk)
+[Windows SDK](https://developer.dji.com/windows-sdk)
+- [Login](https://developer.dji.com/login)
+- [Register](https://developer.dji.com/register)
+[Login](https://developer.dji.com/login)
+[Register](https://developer.dji.com/register)
+- javascript:void(0);
+
+              [User Center](https://developer.dji.com/user)
+              [Logout](javascript:void(0);)
+
+
+- [User Center](https://developer.dji.com/user)
+- [Logout](javascript:void(0);)
+- [User Center](https://developer.dji.com/user)
+- [Logout](javascript:void(0);)
+[User Center](https://developer.dji.com/user)
+[Logout](javascript:void(0);)
+
+# Mobile SDK
+
+[Overview](https://developer.dji.com/mobile-sdk)
+[Documentation](https://developer.dji.com/doc/mobile-sdk-tutorial/en/)
+[Downloads](https://developer.dji.com/mobile-sdk/downloads)
+[Support](https://sdk-forum.dji.net/hc/en-us)
+- [中文](https://developer.dji.com/cn/api-reference-v5/android-api/index.html)
+[中文](https://developer.dji.com/cn/api-reference-v5/android-api/index.html)
+[ISDKManager](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager.html)
+[SDKManagerCallback](https://developer.dji.com/api-reference-v5/android-api/Components/SDKManager/ISDKManager_SDKManagerCallback.html)
+[IKeyManager](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager.html)
+[KeyTools](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager.html)
+[DJIKeyInfo<T>](https://developer.dji.com/api-reference-v5/android-api/Components/IKeyManager/DJIKeyInfo.html)
+[KeyListener<T>](https://developer.dji.com/api-reference-v5/android-api/Components/IKeyManager/IKeyManager_KeyListener.html)
+[DJIKey<T>](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager.html)
+[ProductKey](https://developer.dji.com/api-reference-v5/android-api/Components/IKeyManager/Key_Product_ProductKey.html)
+[AirLinkKey](https://developer.dji.com/api-reference-v5/android-api/Components/IKeyManager/Key_Airlink_AirlinkKey.html)
+[CameraKey](https://developer.dji.com/api-reference-v5/android-api/Components/IKeyManager/Key_Camera_CameraKey.html)
+[GimbalKey](https://developer.dji.com/api-reference-v5/android-api/Components/IKeyManager/Key_Gimbal_GimbalKey.html)
+[FlightControllerKey](https://developer.dji.com/api-reference-v5/android-api/Components/IKeyManager/Key_FlightController_FlightControllerKey.html)
+[RemoteControllerKey](https://developer.dji.com/api-reference-v5/android-api/Components/IKeyManager/Key_RemoteController_RemoteControllerKey.html)
+[BatteryKey](https://developer.dji.com/api-reference-v5/android-api/Components/IKeyManager/Key_Battery_BatteryKey.html)
+[DJIValue](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager.html)
+[LightGimbalTotalAdjustInfo](https://developer.dji.com/api-reference-v5/android-api/Components/IKeyManager/Value_FlightController_LightGimbalTotalAdjustInfo.html)
+[GimbalCalibrationStatusInfo](https://developer.dji.com/api-reference-v5/android-api/Components/IKeyManager/Value_Gimbal_Struct_GimbalCalibrationState.html)
+[GimbalAttitudeRange](https://developer.dji.com/api-reference-v5/android-api/Components/IKeyManager/Value_Gimbal_Struct_GimbalAttitudeRange.html)
+[LightGimbalAdjustInfo](https://developer.dji.com/api-reference-v5/android-api/Components/IKeyManager/Value_FlightController_LightGimbalAdjustInfo.html)
+[GimbalAngleRotation](https://developer.dji.com/api-reference-v5/android-api/Components/IKeyManager/Value_Gimbal_Struct_GimbalAngleRotation.html)
+[GimbalSpeedRotation](https://developer.dji.com/api-reference-v5/android-api/Components/IKeyManager/Value_Gimbal_Struct_GimbalSpeedRotation.html)
+[DateTime](https://developer.dji.com/api-reference-v5/android-api/Components/IKeyManager/Value_Camera_Struct_DateTime.html)
+[CameraHybridZoomSpec](https://developer.dji.com/api-reference-v5/android-api/Components/IKeyManager/Value_Camera_Struct_CameraHybridZoomSpec.html)
+[VideoResolutionFrameRate](https://developer.dji.com/api-reference-v5/android-api/Components/IKeyManager/Value_Camera_Struct_VideoResolutionFrameRate.html)
+[ZoomRatiosRange](https://developer.dji.com/api-reference-v5/android-api/Components/IKeyManager/Value_Camera_Struct_MSDKZoomRatiosRange.html)
+[VideoPreRecordDurationInfo](https://developer.dji.com/api-reference-v5/android-api/Components/IKeyManager/Value_Camera_Struct_VideoPreRecordDurationMsg.html)
+[VideoRecordPlanInfo](https://developer.dji.com/api-reference-v5/android-api/Components/IKeyManager/Value_Camera_Struct_VideoRecordPlanMsg.html)
+[LaserMeasureInformation](https://developer.dji.com/api-reference-v5/android-api/Components/IKeyManager/Value_Camera_Struct_LaserMeasureInformationMsg.html)
+[MultiSpectralFusionDisplayRange](https://developer.dji.com/api-reference-v5/android-api/Components/IKeyManager/Value_Camera_Struct_MultiSpectralFusionDisplayRangeMsg.html)
+
+# Mobile SDK
+
+[VideoRecordingStatus](https://developer.dji.com/api-reference-v5/android-api/Components/IKeyManager/Value_Camera_Struct_IsRecordingInfoMsg.html)
+[CameraStreamSettingsInfo](https://developer.dji.com/api-reference-v5/android-api/Components/IKeyManager/Value_Camera_Struct_MSDKCameraStreamSettings.html)
+[CameraWhiteBalanceInfo](https://developer.dji.com/api-reference-v5/android-api/Components/IKeyManager/Value_Camera_Struct_CameraWhiteBalance.html)
+[CameraWatermarkSettings](https://developer.dji.com/api-reference-v5/android-api/Components/IKeyManager/Value_Camera_Struct_CameraWatermarkSettings.html)
+[CustomExpandNameSettings](https://developer.dji.com/api-reference-v5/android-api/Components/IKeyManager/Value_Camera_Struct_CustomExpandNameSettings.html)
+[WatermarkDisplayContentSettings](https://developer.dji.com/api-reference-v5/android-api/Components/IKeyManager/Value_Camera_Struct_WatermarkDisplayContentSettings.html)
+[ZoomTargetPointInfo](https://developer.dji.com/api-reference-v5/android-api/Components/IKeyManager/Value_Camera_Struct_ZoomPointTargetMsg.html)
+[ThermalGainModeTemperatureRange](https://developer.dji.com/api-reference-v5/android-api/Components/IKeyManager/Value_Camera_Struct_ThermalGainModeTemperatureRangeMsg.html)
+[GeneratedMediaFileInfo](https://developer.dji.com/api-reference-v5/android-api/Components/IKeyManager/Value_Camera_Struct_GeneratedMediaFileInfo.html)
+[CameraStorageInfos](https://developer.dji.com/api-reference-v5/android-api/Components/IKeyManager/Value_Camera_Struct_CameraStorageInfos.html)
+[PhotoIntervalShootSettings](https://developer.dji.com/api-reference-v5/android-api/Components/IKeyManager/Value_Camera_Struct_PhotoIntervalShootSettings.html)
+[CameraStorageInfo](https://developer.dji.com/api-reference-v5/android-api/Components/IKeyManager/Value_Camera_Struct_CameraStorageInfo.html)
+[SuperResolutionInfo](https://developer.dji.com/api-reference-v5/android-api/Components/IKeyManager/Value_Camera_Struct_SuperResolutionStateMsg.html)
+[ThermalAreaMetersureTemperature](https://developer.dji.com/api-reference-v5/android-api/Components/IKeyManager/Value_Camera_Struct_ThermalAreaTemperatureAggregationsMsg.html)
+[DoubleRect](https://developer.dji.com/api-reference-v5/android-api/Components/IKeyManager/Value_Common_Struct_DoubleRect.html)
+[Date](https://developer.dji.com/api-reference-v5/android-api/Components/IKeyManager/Value_Common_Struct_Date.html)
+[Velocity3D](https://developer.dji.com/api-reference-v5/android-api/Components/IKeyManager/Value_Common_Struct_Velocity3D.html)
+[IntValueConfig](https://developer.dji.com/api-reference-v5/android-api/Components/IKeyManager/Value_Common_Struct_IntValueConfig.html)
+[DoubleRect4Sides](https://developer.dji.com/api-reference-v5/android-api/Components/IKeyManager/Value_Common_Struct_RectF.html)
+[Attitude](https://developer.dji.com/api-reference-v5/android-api/Components/IKeyManager/Value_Common_Struct_Attitude.html)
+[DoubleMinMax](https://developer.dji.com/api-reference-v5/android-api/Components/IKeyManager/Value_Common_Struct_DoubleMinMax.html)
+[LocationCoordinate3D](https://developer.dji.com/api-reference-v5/android-api/Components/IKeyManager/Value_Common_Struct_LocationCoordinate3D.html)
+[MultiControlAuthorityTypeInfo](https://developer.dji.com/api-reference-v5/android-api/Components/IKeyManager/Value_Common_Struct_RCAuthorityModeMsg.html)
+[DoublePoint2D](https://developer.dji.com/api-reference-v5/android-api/Components/IKeyManager/Value_Common_Struct_DoublePoint2D.html)
+[MultiControlLockAuthorityInfo](https://developer.dji.com/api-reference-v5/android-api/Components/IKeyManager/Value_Common_Struct_RCAuthorityLockControlMsg.html)
+[LocationCoordinate2D](https://developer.dji.com/api-reference-v5/android-api/Components/IKeyManager/Value_Common_Struct_LocationCoordinate2D.html)
+[BatteryInfo](https://developer.dji.com/api-reference-v5/android-api/Components/IKeyManager/Value_RemoteController_Struct_RcParamChargeRemainingInfo.html)
+[MultiControlStatusInfo](https://developer.dji.com/api-reference-v5/android-api/Components/IKeyManager/Value_RemoteController_Struct_RcMultiStatusMsg.html)
+[MultiControlLostControlInfo](https://developer.dji.com/api-reference-v5/android-api/Components/IKeyManager/Value_RemoteController_Struct_RCAuthorityLostPushMsg.html)
+[RcFirmwareInfo](https://developer.dji.com/api-reference-v5/android-api/Components/IKeyManager/Value_RemoteController_Struct_RcFirmwareInfo.html)
+
+# Mobile SDK
+
+[MultiControlFlightControlAuthorityOwnerInfo](https://developer.dji.com/api-reference-v5/android-api/Components/IKeyManager/Value_RemoteController_Struct_MultiRCFlightControlAuthOwnerMsg.html)
+[MultiControlChannelInfo](https://developer.dji.com/api-reference-v5/android-api/Components/IKeyManager/Value_RemoteController_Struct_RCModeChannelTypeMsg.html)
+[FiveDimensionPressedStatus](https://developer.dji.com/api-reference-v5/android-api/Components/IKeyManager/Value_RemoteController_Struct_RcFiveDimensionPressedStatus.html)
+[LookAtInfo](https://developer.dji.com/api-reference-v5/android-api/Components/IKeyManager/Value_FlightController_LookAtInfo.html)
+[MultiGimbalSyncControlInfo](https://developer.dji.com/api-reference-v5/android-api/Components/IKeyManager/Value_FlightController_Struct_MultiGimbalSyncControlMsg.html)
+[LowBatteryRTHInfo](https://developer.dji.com/api-reference-v5/android-api/Components/IKeyManager/Value_FlightController_Struct_GoHomeAssessment.html)
+[MultiGimbalSyncStatus](https://developer.dji.com/api-reference-v5/android-api/Components/IKeyManager/Value_FlightController_Struct_MultiGimbalSyncStatus.html)
+[IMUCalibrationInfo](https://developer.dji.com/api-reference-v5/android-api/Components/IKeyManager/Value_FlightController_Struct_IMUCalibrationHint.html)
+[GoHomeInfo](https://developer.dji.com/api-reference-v5/android-api/Components/IKeyManager/Value_FlightController_GoHomeInfo.html)
+[LEDsSettings](https://developer.dji.com/api-reference-v5/android-api/Components/IKeyManager/Value_FlightController_Struct_LEDsSettings.html)
+[AccessLockerVerifySecurityCodeInfo](https://developer.dji.com/api-reference-v5/android-api/Components/IKeyManager/Value_FlightController_Struct_AccessLockerV1VerifyUserAccountInfo.html)
+[AccessLockerDeviceStatus](https://developer.dji.com/api-reference-v5/android-api/Components/IKeyManager/Value_FlightController_Struct_AccessLockerV1DeviceState.html)
+[AccessLockerEncryptionStatus](https://developer.dji.com/api-reference-v5/android-api/Components/IKeyManager/Value_FlightController_Struct_AccessLockerV1EncryptionState.html)
+[AccessLockerModifySecurityCodeInfo](https://developer.dji.com/api-reference-v5/android-api/Components/IKeyManager/Value_FlightController_Struct_AccessLockerV1ModifyUserAccountInfo.html)
+[AccessLockerResetSecurityCodeInfo](https://developer.dji.com/api-reference-v5/android-api/Components/IKeyManager/Value_FlightController_Struct_AccessLockerV1ResetUserAccountInfo.html)
+[AccessLockerSetSecurityCodeInfo](https://developer.dji.com/api-reference-v5/android-api/Components/IKeyManager/Value_FlightController_Struct_AccessLockerV1SetupUserAccountInfo.html)
+[AirSenseAirplaneState](https://developer.dji.com/api-reference-v5/android-api/Components/IKeyManager/Value_FlightController_Struct_AirSenseAirplaneState.html)
+[AirSenseSystemInformation](https://developer.dji.com/api-reference-v5/android-api/Components/IKeyManager/Value_FlightController_Struct_AirSenseSystemInformation.html)
+[BatteryLedsInfo](https://developer.dji.com/api-reference-v5/android-api/Components/IKeyManager/Value_Battery_Struct_BatteryLedsControlMsg.html)
+[PlayingAudioFileInfo](https://developer.dji.com/api-reference-v5/android-api/Components/IKeyManager/Value_Accessory_Struct_PlayingAudioFileInfo.html)
+[FrequencyInterferenceInfo](https://developer.dji.com/api-reference-v5/android-api/Components/IKeyManager/Value_Airlink_Struct_FrequencyInterference.html)
+[WlmLinkQualityLevelInfo](https://developer.dji.com/api-reference-v5/android-api/Components/IKeyManager/Value_Airlink_Struct_WlmLinkQualityMsg.html)
+[WlmDongleInfo](https://developer.dji.com/api-reference-v5/android-api/Components/IKeyManager/Value_Airlink_Struct_WlmDongleState.html)
+[WlmDongleListInfo](https://developer.dji.com/api-reference-v5/android-api/Components/IKeyManager/Value_Airlink_Struct_WlmDongleInfoMsg.html)
+[IUserAccountManager](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager.html)
+[LoginInfo](https://developer.dji.com/api-reference-v5/android-api/Components/IUserAccountManager/IUserAccountManager_LoginInfo.html)
+[LoginInfoUpdateListener](https://developer.dji.com/api-reference-v5/android-api/Components/IUserAccountManager/IUserAccountManager_LoginInfoUpdateListener.html)
+[ISimulatorManager](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager.html)
+
+# Mobile SDK
+
+[InitializationSettings](https://developer.dji.com/api-reference-v5/android-api/Components/ISimulatorManager/ISimulatorManager_InitializationSettings.html)
+[SimulatorStatusListener](https://developer.dji.com/api-reference-v5/android-api/Components/ISimulatorManager/ISimulatorManager_SimulatorStatusListener.html)
+[SimulatorState](https://developer.dji.com/api-reference-v5/android-api/Components/ISimulatorManager/ISimulatorManager_SimulatorState.html)
+[IMediaDataCenter](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager.html)
+[IVideoStreamManager](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager.html)
+[StreamSource](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager.html)
+[PhysicalDeviceType](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/IVideoStreamManager_StreamSource_PhysicalDeviceType.html)
+[IVideoChannel](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager.html)
+[VideoChannelStateChangeListener](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/IVideoStreamManager_IVideoChannel_VideoChannelStateChangeListener.html)
+[IVideoFrame](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/IVideoStreamManager_IVideoFrame.html)
+[IVideoDecoder](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager.html)
+[YuvDataListener](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/IVideoStreamManager_IVideoDecoder_YuvDataListener.html)
+[DecoderStateChangeListener](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/IVideoStreamManager_IVideoDecoder_DecoderStateChangeListener.html)
+[StreamSourceListener](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/IVideoStreamManager_StreamSourceListener.html)
+[ICameraStreamManager](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager.html)
+[StreamInfo](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ICameraStreamManager_StreamInfo.html)
+[PinPointInfo](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ICameraStreamManager_PinPointInfo.html)
+[PinPoint](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ICameraStreamManager_PinPoint.html)
+[IMediaManager](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager.html)
+[MediaFileListDataSource](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager.html)
+[Builder](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/IMediaManager_MediaFileListDataSource_Builder.html)
+[PullMediaFileListParam](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager.html)
+[Builder](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/IMediaManager_PullMediaFileListParam_Builder.html)
+[MediaFileListData](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/IMediaManager_MediaFileListData.html)
+[MediaFile](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/IMediaManager_MediaFile.html)
+[MediaFileListStateListener](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/IMediaManager_MediaFileListStateListener.html)
+[VideoPlayStatus](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/IMediaManager_VideoPlayStatus.html)
+[VideoPlayStateListener](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/IMediaManager_VideoPlayStateListener.html)
+[MediaFileDownloadListener](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/IMediaManager_MediaFileDownloadListener.html)
+[MediaFrameListener](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/IMediaManager_MediaFrameListener.html)
+[ILiveStreamManager](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager.html)
+
+# Mobile SDK
+
+[LiveStreamSettings](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager.html)
+[Builder](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager_LiveStreamSettings_Builder.html)
+[RtspSettings](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager.html)
+[Builder](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager_LiveStreamSettings_RtspSettings_Builder.html)
+[RtmpSettings](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager.html)
+[Builder](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager_LiveStreamSettings_RtmpSettings_Builder.html)
+[GB28181Settings](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager.html)
+[Builder](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager_LiveStreamSettings_GB28181Settings_Builder.html)
+[AgoraSettings](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager.html)
+[Builder](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager_LiveStreamSettings_AgoraSettings_Builder.html)
+[LiveStreamStatus](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager_LiveStreamStatus.html)
+[VideoResolution](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager_VideoResolution.html)
+[LiveStreamStatusListener](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager_LiveStreamStatusListener.html)
+[IWaypointMissionManager](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager.html)
+[WaypointMissionExecuteStateListener](https://developer.dji.com/api-reference-v5/android-api/Components/IWaypointMissionManager/IWaypointMissionManager_WaypointMissionExecuteStateListener.html)
+[WaylineExecutingInfoListener](https://developer.dji.com/api-reference-v5/android-api/Components/IWaypointMissionManager/IWaypointMissionManager_WaylineExecutingInfoListener.html)
+[WaypointActionListener](https://developer.dji.com/api-reference-v5/android-api/Components/IWaypointMissionManager/IWaypointMissionManager_WaypointActionListener.html)
+[WaylineExecutingInfo](https://developer.dji.com/api-reference-v5/android-api/Components/IWaypointMissionManager/IWaypointMissionManager_WaylineExecutingInfo.html)
+[BreakPointInfo](https://developer.dji.com/api-reference-v5/android-api/Components/IWaypointMissionManager/IWaypointMissionManager_BreakPointInfo.html)
+[IWPMZManager](https://developer.dji.com/api-reference-v5/android-api/Components/IWaypointMissionManager/IWPMZManager.html)
+[IVirtualStickManager](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager.html)
+[IStick](https://developer.dji.com/api-reference-v5/android-api/Components/IVirtualStickManager/IVirtualStickManager_DJIStick.html)
+[VirtualStickStateListener](https://developer.dji.com/api-reference-v5/android-api/Components/IVirtualStickManager/IVirtualStickManager_VirtualStickStateListener.html)
+[VirtualStickFlightControlParam](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager.html)
+[VirtualStickRange](https://developer.dji.com/api-reference-v5/android-api/Components/IVirtualStickManager/IVirtualStickManager_VirtualStickRange.html)
+[VirtualStickState](https://developer.dji.com/api-reference-v5/android-api/Components/IVirtualStickManager/IVirtualStickManager_VirtualStickState.html)
+[IIntelligentFlightManager](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager.html)
+[IntelligentFlightInfoListener](https://developer.dji.com/api-reference-v5/android-api/Components/IIntelligentFlightManager/IIntelligentFlightManager_IntelligentFlightInfoListener.html)
+[AutoSensingInfoListener](https://developer.dji.com/api-reference-v5/android-api/Components/IIntelligentFlightManager/IIntelligentFlightManager_AutoSensingInfoListener.html)
+
+# Mobile SDK
+
+[IntelligentFlightInfo](https://developer.dji.com/api-reference-v5/android-api/Components/IIntelligentFlightManager/IIntelligentFlightManager_IntelligentFlightInfo.html)
+[AutoSensingInfo](https://developer.dji.com/api-reference-v5/android-api/Components/IIntelligentFlightManager/IIntelligentFlightManager_AutoSensingInfo.html)
+[AutoSensingTarget](https://developer.dji.com/api-reference-v5/android-api/Components/IIntelligentFlightManager/IIntelligentFlightManager_AutoSensingTarget.html)
+[IntelligentModel](https://developer.dji.com/api-reference-v5/android-api/Components/IIntelligentFlightManager/IIntelligentFlightManager_IntelligentModel.html)
+[ISmartTrackMissionManager](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager.html)
+[SmartTrackCapability](https://developer.dji.com/api-reference-v5/android-api/Components/IIntelligentFlightManager/IIntelligentFlightManager_SmartTrackMissionManager_SmartTrackCapability.html)
+[SmartTrackInfo](https://developer.dji.com/api-reference-v5/android-api/Components/IIntelligentFlightManager/IIntelligentFlightManager_SmartTrackMissionManager_SmartTrackInfo.html)
+[SmartTrackParam](https://developer.dji.com/api-reference-v5/android-api/Components/IIntelligentFlightManager/IIntelligentFlightManager_SmartTrackMissionManager_SmartTrackParam.html)
+[SmartTrackTarget](https://developer.dji.com/api-reference-v5/android-api/Components/IIntelligentFlightManager/IIntelligentFlightManager_SmartTrackMissionManager_SmartTrackTarget.html)
+[ISpotLightManager](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager.html)
+[SpotLightCapability](https://developer.dji.com/api-reference-v5/android-api/Components/IIntelligentFlightManager/IIntelligentFlightManager_SpotLightManager_SpotLightCapability.html)
+[SpotLightTarget](https://developer.dji.com/api-reference-v5/android-api/Components/IIntelligentFlightManager/IIntelligentFlightManager_SpotLightManager_SpotLightTarget.html)
+[IPOIMissionManager](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager.html)
+[POICapability](https://developer.dji.com/api-reference-v5/android-api/Components/IIntelligentFlightManager/IIntelligentFlightManager_POIMissionManager_POICapability.html)
+[POIInfo](https://developer.dji.com/api-reference-v5/android-api/Components/IIntelligentFlightManager/IIntelligentFlightManager_POIMissionManager_POIInfo.html)
+[POIParam](https://developer.dji.com/api-reference-v5/android-api/Components/IIntelligentFlightManager/IIntelligentFlightManager_POIMissionManager_POIParam.html)
+[POITarget](https://developer.dji.com/api-reference-v5/android-api/Components/IIntelligentFlightManager/IIntelligentFlightManager_POIMissionManager_POITarget.html)
+[IFlyToMissionManager](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager.html)
+[FlyToCapability](https://developer.dji.com/api-reference-v5/android-api/Components/IIntelligentFlightManager/IIntelligentFlightManager_FlyToMissionManager_FlyToCapability.html)
+[FlyToInfo](https://developer.dji.com/api-reference-v5/android-api/Components/IIntelligentFlightManager/IIntelligentFlightManager_FlyToMissionManager_FlyToInfo.html)
+[FlyToParam](https://developer.dji.com/api-reference-v5/android-api/Components/IIntelligentFlightManager/IIntelligentFlightManager_FlyToMissionManager_FlyToParam.html)
+[FlyToTarget](https://developer.dji.com/api-reference-v5/android-api/Components/IIntelligentFlightManager/IIntelligentFlightManager_FlyToMissionManager_FlyToTarget.html)
+[IPerceptionManager](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager.html)
+[PerceptionInfo](https://developer.dji.com/api-reference-v5/android-api/Components/IPerceptionManager/IPerceptionManager_PerceptionInfo.html)
+[PerceptionInformationListener](https://developer.dji.com/api-reference-v5/android-api/Components/IPerceptionManager/IPerceptionManager_PerceptionInformationListener.html)
+[ObstacleData](https://developer.dji.com/api-reference-v5/android-api/Components/IPerceptionManager/IPerceptionManager_ObstacleData.html)
+[ObstacleDataListener](https://developer.dji.com/api-reference-v5/android-api/Components/IPerceptionManager/IPerceptionManager_ObstacleDataListener.html)
+[IRadarManager](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager.html)
+
+# Mobile SDK
+
+[RadarInformation](https://developer.dji.com/api-reference-v5/android-api/Components/IPerceptionManager/IRadarManager_RadarInformation.html)
+[RadarInformationListener](https://developer.dji.com/api-reference-v5/android-api/Components/IPerceptionManager/IRadarManager_RadarInformationListener.html)
+[IRTKCenter](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager.html)
+[INetworkRTKManager](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager.html)
+[INetworkServiceInfoListener](https://developer.dji.com/api-reference-v5/android-api/Components/IRTKCenter/INetworkRTKManager_NetworkServiceInfoListener.html)
+[RTKCustomNetworkSetting](https://developer.dji.com/api-reference-v5/android-api/Components/IRTKCenter/Value_RtkBaseStation_Struct_RTKCustomNetworkSetting.html)
+[IRTKStationManager](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager.html)
+[RTKStationInfo](https://developer.dji.com/api-reference-v5/android-api/Components/IRTKCenter/Value_RtkBaseStation_Struct_RTKBaseStationConnectInfo.html)
+[ConnectedRTKStationInfo](https://developer.dji.com/api-reference-v5/android-api/Components/IRTKCenter/IRTKStationManager_ConnectedTKStationInfo.html)
+[SearchRTKStationListener](https://developer.dji.com/api-reference-v5/android-api/Components/IRTKCenter/IRTKStationManager_SearchStationListener.html)
+[RTKStationConnectStatusListener](https://developer.dji.com/api-reference-v5/android-api/Components/IRTKCenter/IRTKStationManager_RTKStationConnectStatusListener.html)
+[ConnectedRTKStationInfoListener](https://developer.dji.com/api-reference-v5/android-api/Components/IRTKCenter/IRTKStationManager_ConnectedRTKStationInfoListener.html)
+[RTKLocationInfo](https://developer.dji.com/api-reference-v5/android-api/Components/IRTKCenter/IRTKCenter_RTKLocationInfo.html)
+[RTKLocation](https://developer.dji.com/api-reference-v5/android-api/Components/IRTKCenter/Value_RtkMobileStation_Struct_RTKLocation.html)
+[RTKSystemState](https://developer.dji.com/api-reference-v5/android-api/Components/IRTKCenter/RTKCenter_RTKSystemState.html)
+[RTKSatelliteInfo](https://developer.dji.com/api-reference-v5/android-api/Components/IRTKCenter/Value_RtkMobileStation_Struct_RTKSatelliteInfo.html)
+[RTKReceiverInfo](https://developer.dji.com/api-reference-v5/android-api/Components/IRTKCenter/Value_RtkMobileStation_Struct_RTKReceiverInfo.html)
+[RTKLocationInfoListener](https://developer.dji.com/api-reference-v5/android-api/Components/IRTKCenter/IRTKCenter_RTKLocationInfoListener.html)
+[RTKSystemStateListener](https://developer.dji.com/api-reference-v5/android-api/Components/IRTKCenter/IRTKCenter_RTKSystemStateListener.html)
+[RTKBaseListener<T>](https://developer.dji.com/api-reference-v5/android-api/Components/IRTKCenter/IRTKCenter_RTKBaseListener.html)
+[IFlyZoneManager](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager.html)
+[FlySafeTipInformation](https://developer.dji.com/api-reference-v5/android-api/Components/IFlyZoneManager/IFlyZoneManager_FlySafeTipInformation.html)
+[FlySafeWarningInformation](https://developer.dji.com/api-reference-v5/android-api/Components/IFlyZoneManager/IFlyZoneManager_FlyingSafetyWarningInformation.html)
+[FlySafeSeriousWarningInformation](https://developer.dji.com/api-reference-v5/android-api/Components/IFlyZoneManager/IFlyZoneManager_FlyingSafetySeriousWarningInformation.html)
+[FlySafeReturnToHomeInformation](https://developer.dji.com/api-reference-v5/android-api/Components/IFlyZoneManager/IFlyZoneManager_FlySafeReturnToHomeInformation.html)
+[MultiPolygonFlyZoneInformation](https://developer.dji.com/api-reference-v5/android-api/Components/IFlyZoneManager/IFlyZoneManager_MultiPolygonFlyZoneInformation.html)
+[FlyZoneInformation](https://developer.dji.com/api-reference-v5/android-api/Components/IFlyZoneManager/IFlyZoneManager_FlyZoneInformation.html)
+[FlyZoneLicenseInfo](https://developer.dji.com/api-reference-v5/android-api/Components/IFlyZoneManager/IFlyZoneManager_FlyZoneLicenseInfo.html)
+[FlySafeNotificationListener](https://developer.dji.com/api-reference-v5/android-api/Components/IFlyZoneManager/IFlyZoneManager_FlySafeNotificationListener.html)
+[FlySafeDatabaseListener](https://developer.dji.com/api-reference-v5/android-api/Components/IFlyZoneManager/IFlyZoneManager_FlySafeDatabaseListener.html)
+
+# Mobile SDK
+
+[FlySafeDatabaseInfo](https://developer.dji.com/api-reference-v5/android-api/Components/IFlyZoneManager/IFlyZoneManager_FlySafeDatabaseInfo.html)
+[ILTEManager](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager.html)
+[LTEAuthenticationInfo](https://developer.dji.com/api-reference-v5/android-api/Components/ILTEManager/ILTEManager_LTEAuthenticationInfo.html)
+[LTELinkInfo](https://developer.dji.com/api-reference-v5/android-api/Components/ILTEManager/ILTEManager_LTELinkInfo.html)
+[LTEPrivatizationServerInfo](https://developer.dji.com/api-reference-v5/android-api/Components/ILTEManager/ILTEManager_LTEPrivatizationServerInfo.html)
+[LTEAuthenticationInfoListener](https://developer.dji.com/api-reference-v5/android-api/Components/ILTEManager/ILTEManager_LTEAuthenticationInfoListener.html)
+[LTELinkInfoListener](https://developer.dji.com/api-reference-v5/android-api/Components/ILTEManager/ILTEManager_LTELinkInfoListener.html)
+[LTEDongleInfoListener](https://developer.dji.com/api-reference-v5/android-api/Components/ILTEManager/ILTEManager_LTEDongleInfoListener.html)
+[IPayloadCenter](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager.html)
+[IPayloadManager](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager.html)
+[PayloadBasicInfoListener](https://developer.dji.com/api-reference-v5/android-api/Components/IPayloadCenter/IPayloadManager_PayloadBasicInfoListener.html)
+[PayloadWidgetInfoListener](https://developer.dji.com/api-reference-v5/android-api/Components/IPayloadCenter/IPayloadManager_PayloadWidgetInfoListener.html)
+[PayloadDataListener](https://developer.dji.com/api-reference-v5/android-api/Components/IPayloadCenter/IPayloadManager_PayloadDataListener.html)
+[PayloadBasicInfo](https://developer.dji.com/api-reference-v5/android-api/Components/IPayloadCenter/IPayloadManager_PayloadBasicInfo.html)
+[PayloadWidgetInfo](https://developer.dji.com/api-reference-v5/android-api/Components/IPayloadCenter/IPayloadManager_PayloadWidgetInfo.html)
+[PayloadWidget](https://developer.dji.com/api-reference-v5/android-api/Components/IPayloadCenter/IPayloadManager_PayloadWidget.html)
+[FloatingWindowWidget](https://developer.dji.com/api-reference-v5/android-api/Components/IPayloadCenter/IPayloadManager_FloatingWindowWidget.html)
+[SpeakerWidget](https://developer.dji.com/api-reference-v5/android-api/Components/IPayloadCenter/IPayloadManager_SpeakerWidget.html)
+[TextInputBoxWidget](https://developer.dji.com/api-reference-v5/android-api/Components/IPayloadCenter/IPayloadManager_TextInputBoxWidget.html)
+[IconFilePath](https://developer.dji.com/api-reference-v5/android-api/Components/IPayloadCenter/IPayloadManager_IconFilePath.html)
+[SubItems](https://developer.dji.com/api-reference-v5/android-api/Components/IPayloadCenter/IPayloadManager_SubItems.html)
+[CustomizeRcButtonConfig](https://developer.dji.com/api-reference-v5/android-api/Components/IPayloadCenter/Value_Payload_Struct_CustomizeRcButtonConfig.html)
+[WidgetValue](https://developer.dji.com/api-reference-v5/android-api/Components/IPayloadCenter/Value_Payload_Struct_WidgetValue.html)
+[IIntelligentBoxManager](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager.html)
+[IntelligentBoxInfoListener](https://developer.dji.com/api-reference-v5/android-api/Components/IPayloadCenter/IIntelligentBoxManager_IntelligentBoxInfoListener.html)
+[IntelligentBoxInfo](https://developer.dji.com/api-reference-v5/android-api/Components/IPayloadCenter/IIntelligentBoxManager_IntelligentBoxInfo.html)
+[IntelligentBoxAppInfo](https://developer.dji.com/api-reference-v5/android-api/Components/IPayloadCenter/IIntelligentBoxManager_IntelligentBoxAppInfo.html)
+[IMegaphoneManager](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager.html)
+[FileInfo](https://developer.dji.com/api-reference-v5/android-api/Components/IMegaphoneManager/IMegaphoneManager_FileInfo.html)
+[RealTimeTransimissionStateListener](https://developer.dji.com/api-reference-v5/android-api/Components/IMegaphoneManager/IMegaphoneManager_RealTimeTransimissionStateListener.html)
+[MegaphoneInfoListener](https://developer.dji.com/api-reference-v5/android-api/Components/IMegaphoneManager/IMegaphoneManager_MegaphoneInfoListener.html)
+
+# Mobile SDK
+
+[MegaphoneInfo](https://developer.dji.com/api-reference-v5/android-api/Components/IMegaphoneManager/IMegaphoneManager_MegaphoneInfo.html)
+[IPipelineManager](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager.html)
+[Pipeline](https://developer.dji.com/api-reference-v5/android-api/Components/IPipelineManager/IPipelineManager_Pipeline.html)
+[DataResult](https://developer.dji.com/api-reference-v5/android-api/Components/IPipelineManager/IPipelineManager_DataResult.html)
+[PipelineConnectionListener](https://developer.dji.com/api-reference-v5/android-api/Components/IPipelineManager/IPipelineManager_PipelineConnectionListener.html)
+[IUpgradeManager](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager.html)
+[FirmwareInformation](https://developer.dji.com/api-reference-v5/android-api/Components/IUpgradeManager/IUpgradeManager_FirmwareInformation.html)
+[UpgradeableComponent](https://developer.dji.com/api-reference-v5/android-api/Components/IUpgradeManager/IUpgradeManager_UpgradeableComponent.html)
+[UpgradeInfo](https://developer.dji.com/api-reference-v5/android-api/Components/IUpgradeManager/IUpgradeManager_UpgradeInfo.html)
+[UpgradeableComponentListener](https://developer.dji.com/api-reference-v5/android-api/Components/IUpgradeManager/IUpgradeManager_UpgradeableComponentListener.html)
+[UpgradeInfoListener](https://developer.dji.com/api-reference-v5/android-api/Components/IUpgradeManager/IUpgradeManager_UpgradeInfoListener.html)
+[IFlightLogManager](https://developer.dji.com/api-reference-v5/android-api/Components/IFlightLogManager/IFlightLogManager.html)
+[IAreaCodeManager](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager.html)
+[AreaCodeData](https://developer.dji.com/api-reference-v5/android-api/Components/IAreaCodeManager/IAreaCodeManager_AreaCodeData.html)
+[AreaCodeChangeListener](https://developer.dji.com/api-reference-v5/android-api/Components/IAreaCodeManager/IAreaCodeManager_AreaCodeData_AreaCodeChangeListener.html)
+[IUASRemoteIDManager](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager.html)
+[UASRemoteIDStatus](https://developer.dji.com/api-reference-v5/android-api/Components/IUASRemoteIDManager/IUASRemoteIDManager_UASRemoteIDStatus.html)
+[UASRemoteIDStatusListener](https://developer.dji.com/api-reference-v5/android-api/Components/IUASRemoteIDManager/IUASRemoteIDManager_UASRemoteIDStatusListener.html)
+[ElectronicIDStatus](https://developer.dji.com/api-reference-v5/android-api/Components/IUASRemoteIDManager/IUASRemoteIDManager_ElectronicIDStatus.html)
+[ElectronicIDStatusListener](https://developer.dji.com/api-reference-v5/android-api/Components/IUASRemoteIDManager/IUASRemoteIDManager_ElectronicIDStatusListener.html)
+[UARegistrationNumberStatus](https://developer.dji.com/api-reference-v5/android-api/Components/IUASRemoteIDManager/IUASRemoteIDManager_UARegistrationNumberStatus.html)
+[CClassStatusListener](https://developer.dji.com/api-reference-v5/android-api/Components/IUASRemoteIDManager/IUASRemoteIDManager_CClassStatusListener.html)
+[UARegistrationNumberStatusListener](https://developer.dji.com/api-reference-v5/android-api/Components/IUASRemoteIDManager/IUASRemoteIDManager_UARegistrationNumberStatusListener.html)
+[OperatorRegistrationNumberStatus](https://developer.dji.com/api-reference-v5/android-api/Components/IUASRemoteIDManager/IUASRemoteIDManager_OperatorRegistrationNumberStatus.html)
+[OperatorRegistrationNumberStatusListener](https://developer.dji.com/api-reference-v5/android-api/Components/IUASRemoteIDManager/IUASRemoteIDManager_OperatorRegistrationNumberStatusListener.html)
+[RealNameRegistrationStatus](https://developer.dji.com/api-reference-v5/android-api/Components/IUASRemoteIDManager/IUASRemoteIDManager_RealNameRegistrationStatus.html)
+[RealNameRegistrationStatusListener](https://developer.dji.com/api-reference-v5/android-api/Components/IUASRemoteIDManager/IUASRemoteIDManager_RealNameRegistrationStatusListener.html)
+[ILDMManager](https://developer.dji.com/api-reference-v5/android-api/Components/ILDMManager/ILDMManager.html)
+[IDataProtectionManager](https://developer.dji.com/api-reference-v5/android-api/Components/IDataProtectionManager/IDataProtectionManager.html)
+[IDeviceHealthManager](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager.html)
+
+# Mobile SDK
+
+[DJIDeviceHealthInfo](https://developer.dji.com/api-reference-v5/android-api/Components/IDeviceHealthManager/IDeviceHealthManager_DJIDeviceHealthInfo.html)
+[DJIDeviceHealthInfoChangeListener](https://developer.dji.com/api-reference-v5/android-api/Components/IDeviceHealthManager/IDeviceHealthManager_DJIDeviceHealthInfoChangeListener.html)
+[IDJIError](https://developer.dji.com/api-reference-v5/android-api/Components/DJIError/DJIError.html)
+[CommonCallbacks](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager.html)
+[CompletionCallback](https://developer.dji.com/api-reference-v5/android-api/Components/DJICommonCallbacks/DJICommonCallbacks_CompletionCallback.html)
+[CompletionCallbackWithParam<T>](https://developer.dji.com/api-reference-v5/android-api/Components/DJICommonCallbacks/DJICommonCallbacks_CompletionCallbackWithParam.html)
+
+# class ILiveStreamManager
+
+```
+interface ILiveStreamManager
+```
+
+
+##### Description:
+Class that used to manage the live steam. It is used to configure the live stream settings, start and stop the live streaming. Supported since MSDK 5.0.0
+
+```
+Supported since MSDK 5.0.0
+```
+
+
+##### Class Members:
+[isStreaming](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager.html#ilivestreammanager_isstreaming_inline)
+
+###### method isStreaming
+
+```
+boolean isStreaming()
+```
+
+
+##### Description:
+Get whether the aircraft is live streaming now. Supported since MSDK 5.0.0
+
+```
+Supported since MSDK 5.0.0
+```
+
+
+##### Return:
+
+```
+true
+```
+
+[setLiveStreamSettings](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager.html#ilivestreammanager_setlivestreamsettings_inline)
+
+###### method setLiveStreamSettings
+
+```
+void setLiveStreamSettings(LiveStreamSettings settings)
+```
+
+
+##### Description:
+Set live stream settings. Supported since MSDK 5.0.0
+
+```
+Supported since MSDK 5.0.0
+```
+
+
+##### Input Parameters:
+[LiveStreamSettings](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager_LiveStreamSettings.html#ilivestreammanager_livestreamsettings)
+[getLiveStreamSettings](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager.html#ilivestreammanager_getlivestreamsettings_inline)
+
+###### method getLiveStreamSettings
+
+```
+LiveStreamSettings getLiveStreamSettings()
+```
+
+
+##### Description:
+Get the live stream settings. Supported since MSDK 5.0.0
+
+```
+Supported since MSDK 5.0.0
+```
+
+
+##### Return:
+[LiveStreamSettings](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager_LiveStreamSettings.html#ilivestreammanager_livestreamsettings)
+[setVideoChannelType](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager.html#ilivestreammanager_setvideochanneltype_inline)
+
+###### method setVideoChannelType
+
+```
+@Deprecated void setVideoChannelType(VideoChannelType videoChannelType)
+```
+
+
+##### Description:
+Set the video channel for live streaming. Note: This interface is deprecated starting from MSDK 5.8.0. Please call [setCameraIndex](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager.html#ilivestreammanager_setcameraindex) to set the camera index to live stream. Supported since MSDK 5.0.0
+
+```
+[setCameraIndex](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager.html#ilivestreammanager_setcameraindex)
+```
+
+
+```
+Supported since MSDK 5.0.0
+```
+
+
+##### Input Parameters:
+[VideoChannelType](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/IVideoStreamManager_IVideoChannel.html#ivideostreammanager_ivideochannel_videochanneltype)
+[getVideoChannelType](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager.html#ilivestreammanager_getvideochanneltype_inline)
+
+###### method getVideoChannelType
+
+```
+@Deprecated VideoChannelType getVideoChannelType()
+```
+
+
+##### Description:
+Get the type of video channel for live streaming. Note: This interface is deprecated starting from MSDK 5.8.0. Please call [getCameraIndex](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager.html#ilivestreammanager_getcameraindex) to get the camera index. Supported since MSDK 5.0.0
+
+```
+[getCameraIndex](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager.html#ilivestreammanager_getcameraindex)
+```
+
+
+```
+Supported since MSDK 5.0.0
+```
+
+
+##### Return:
+[VideoChannelType](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/IVideoStreamManager_IVideoChannel.html#ivideostreammanager_ivideochannel_videochanneltype)
+[setCameraIndex](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager.html#ilivestreammanager_setcameraindex_inline)
+
+###### method setCameraIndex
+
+```
+void setCameraIndex(@NonNull ComponentIndexType cameraIndex)
+```
+
+
+##### Description:
+Set the camera index that needs to live stream. Supported since MSDK 5.8.0
+
+```
+Supported since MSDK 5.8.0
+```
+
+
+##### Input Parameters:
+
+# class ILiveStreamManager
+
+[ComponentIndexType](https://developer.dji.com/api-reference-v5/android-api/Components/IKeyManager/KeyTools.html#value_common_enum_componentindextype)
+[getCameraIndex](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager.html#ilivestreammanager_getcameraindex_inline)
+
+###### method getCameraIndex
+
+```
+ComponentIndexType getCameraIndex()
+```
+
+
+##### Description:
+Gets the set camera index. Supported since MSDK 5.8.0
+
+```
+Supported since MSDK 5.8.0
+```
+
+
+##### Return:
+[ComponentIndexType](https://developer.dji.com/api-reference-v5/android-api/Components/IKeyManager/KeyTools.html#value_common_enum_componentindextype)
+[startStream](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager.html#ilivestreammanager_startstream_inline)
+
+###### method startStream
+
+```
+void startStream(CommonCallbacks.CompletionCallback callback)
+```
+
+
+##### Description:
+Start live streaming. Supported since MSDK 5.0.0
+
+```
+Supported since MSDK 5.0.0
+```
+
+
+##### Input Parameters:
+[CommonCallbacks](https://developer.dji.com/api-reference-v5/android-api/Components/DJICommonCallbacks/DJICommonCallbacks.html#djicommoncallbacks)
+[CompletionCallback](https://developer.dji.com/api-reference-v5/android-api/Components/DJICommonCallbacks/DJICommonCallbacks_CompletionCallback.html#djicommoncallbacks_completioncallback)
+[stopStream](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager.html#ilivestreammanager_stopstream_inline)
+
+###### method stopStream
+
+```
+void stopStream(CommonCallbacks.CompletionCallback callback)
+```
+
+
+##### Description:
+Stop live streaming. Supported since MSDK 5.0.0
+
+```
+Supported since MSDK 5.0.0
+```
+
+
+##### Input Parameters:
+[CommonCallbacks](https://developer.dji.com/api-reference-v5/android-api/Components/DJICommonCallbacks/DJICommonCallbacks.html#djicommoncallbacks)
+[CompletionCallback](https://developer.dji.com/api-reference-v5/android-api/Components/DJICommonCallbacks/DJICommonCallbacks_CompletionCallback.html#djicommoncallbacks_completioncallback)
+[setLiveStreamQuality](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager.html#ilivestreammanager_setlivestreamquality_inline)
+
+###### method setLiveStreamQuality
+
+```
+void setLiveStreamQuality(StreamQuality quality)
+```
+
+
+##### Description:
+Set the type of live stream video quality. Supported since MSDK 5.0.0
+
+```
+Supported since MSDK 5.0.0
+```
+
+
+##### Input Parameters:
+[StreamQuality](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager.html#ilivestreammanager_streamquality)
+[getLiveStreamQuality](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager.html#ilivestreammanager_getlivestreamquality_inline)
+
+###### method getLiveStreamQuality
+
+```
+StreamQuality getLiveStreamQuality()
+```
+
+
+##### Description:
+Get the type of live stream video quality. Supported since MSDK 5.0.0
+
+```
+Supported since MSDK 5.0.0
+```
+
+
+##### Return:
+[StreamQuality](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager.html#ilivestreammanager_streamquality)
+[setLiveVideoBitrateMode](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager.html#ilivestreammanager_setlivevideobitratemode_inline)
+
+###### method setLiveVideoBitrateMode
+
+```
+void setLiveVideoBitrateMode(LiveVideoBitrateMode bitrateMode)
+```
+
+
+##### Description:
+Set the mode of live stream video bit rate. Under AUTO mode, MSDK will set the live stream video bit rate automatically. Under MANUAL mode, you can call[setLiveVideoBitrate](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager.html#ilivestreammanager_setlivevideobitrate)to set the live stream video bit rate. Supported since MSDK 5.0.0
+
+```
+[setLiveVideoBitrate](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager.html#ilivestreammanager_setlivevideobitrate)
+```
+
+
+```
+Supported since MSDK 5.0.0
+```
+
+
+##### Input Parameters:
+[LiveVideoBitrateMode](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager.html#ilivestreammanager_livevideobitratemode)
+
+# class ILiveStreamManager
+
+[getLiveVideoBitrateMode](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager.html#ilivestreammanager_getlivevideobitratemode_inline)
+
+###### method getLiveVideoBitrateMode
+
+```
+LiveVideoBitrateMode getLiveVideoBitrateMode()
+```
+
+
+##### Description:
+Get the mode of live stream video bitrate. Supported since MSDK 5.0.0
+
+```
+Supported since MSDK 5.0.0
+```
+
+
+##### Return:
+[LiveVideoBitrateMode](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager.html#ilivestreammanager_livevideobitratemode)
+[setLiveVideoBitrate](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager.html#ilivestreammanager_setlivevideobitrate_inline)
+
+###### method setLiveVideoBitrate
+
+```
+void setLiveVideoBitrate(int bitrate)
+```
+
+
+##### Description:
+Set the live stream bitrate, unit: bit/s. Supported since MSDK 5.0.0
+
+```
+Supported since MSDK 5.0.0
+```
+
+
+##### Input Parameters:
+[getLiveVideoBitrate](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager.html#ilivestreammanager_getlivevideobitrate_inline)
+
+###### method getLiveVideoBitrate
+
+```
+int getLiveVideoBitrate()
+```
+
+
+##### Description:
+Get the live stream video bitrate. Supported since MSDK 5.0.0
+
+```
+Supported since MSDK 5.0.0
+```
+
+
+##### Return:
+[setLiveStreamScaleType](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager.html#ilivestreammanager_setlivestreamscaletype_inline)
+
+###### method setLiveStreamScaleType
+
+```
+void setLiveStreamScaleType(ICameraStreamManager.ScaleType scaleType)
+```
+
+
+##### Description:
+Set the live stream video scale type. Supported since MSDK 5.10.0
+
+```
+Supported since MSDK 5.10.0
+```
+
+
+##### Input Parameters:
+[ICameraStreamManager](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ICameraStreamManager.html#icamerastreammanager)
+[getLiveStreamScaleType](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager.html#ilivestreammanager_getlivestreamscaletype_inline)
+
+###### method getLiveStreamScaleType
+
+```
+ICameraStreamManager.ScaleType getLiveStreamScaleType()
+```
+
+
+##### Description:
+Get the live stream video scale type. Supported since MSDK 5.10.0
+
+```
+Supported since MSDK 5.10.0
+```
+
+
+##### Return:
+[ICameraStreamManager](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ICameraStreamManager.html#icamerastreammanager)
+[addLiveStreamStatusListener](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager.html#ilivestreammanager_addlivestreamstatuslistener_inline)
+
+###### method addLiveStreamStatusListener
+
+```
+void addLiveStreamStatusListener(LiveStreamStatusListener listener)
+```
+
+
+##### Description:
+Add the listener of live stream status. Supported since MSDK 5.0.0
+
+```
+Supported since MSDK 5.0.0
+```
+
+
+##### Input Parameters:
+[LiveStreamStatusListener](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager_LiveStreamStatusListener.html#ilivestreammanager_livestreamstatuslistener)
+[removeLiveStreamStatusListener](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager.html#ilivestreammanager_removelivestreamstatuslistener_inline)
+
+###### method removeLiveStreamStatusListener
+
+```
+void removeLiveStreamStatusListener(LiveStreamStatusListener listener)
+```
+
+
+##### Description:
+Remove the listener of live stream status. Supported since MSDK 5.0.0
+
+```
+Supported since MSDK 5.0.0
+```
+
+
+##### Input Parameters:
+[LiveStreamStatusListener](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager_LiveStreamStatusListener.html#ilivestreammanager_livestreamstatuslistener)
+
+##### Related:
+[LiveStreamSettings](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager_LiveStreamSettings.html)
+[LiveStreamType](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager.html#ilivestreammanager_livestreamtype_inline)
+
+###### enum LiveStreamType
+
+```
+enum LiveStreamType
+```
+
+
+##### Description:
+The type of live stream protocol. Supported since MSDK 5.0.0
+
+```
+Supported since MSDK 5.0.0
+```
+
+
+##### Enum Members:
+
+##### Class Members:
+
+# class ILiveStreamManager
+
+[RtspSettings](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager_LiveStreamSettings_RtspSettings.html)
+[RtmpSettings](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager_LiveStreamSettings_RtmpSettings.html)
+[GB28181Settings](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager_LiveStreamSettings_GB28181Settings.html)
+[AgoraSettings](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager_LiveStreamSettings_AgoraSettings.html)
+[StreamQuality](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager.html#ilivestreammanager_streamquality_inline)
+
+###### enum StreamQuality
+
+```
+enum StreamQuality
+```
+
+
+##### Description:
+The type of live video stream quality. Supported since MSDK 5.0.0
+
+```
+Supported since MSDK 5.0.0
+```
+
+
+##### Enum Members:
+
+##### Class Members:
+[LiveVideoBitrateMode](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager.html#ilivestreammanager_livevideobitratemode_inline)
+
+###### enum LiveVideoBitrateMode
+
+```
+enum LiveVideoBitrateMode
+```
+
+
+##### Description:
+The mode of live stream video bitrate. Supported since MSDK 5.0.0
+
+```
+Supported since MSDK 5.0.0
+```
+
+
+##### Enum Members:
+
+##### Class Members:
+[LiveStreamStatus](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager_LiveStreamStatus.html)
+[VideoResolution](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager_VideoResolution.html)
+[LiveStreamStatusListener](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager_LiveStreamStatusListener.html)
+[×](javascript:;)
+
+## Search Mobile SDK Document
+
+{{searchCount}} Results
+- [{{{(item.highlights && item.highlights.title) || item.title}}}
+                  {{{(item.highlights && item.highlights.content[0]) || item.title}}}](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager.html)
+[{{{(item.highlights && item.highlights.title) || item.title}}}
+                  {{{(item.highlights && item.highlights.content[0]) || item.title}}}](https://developer.dji.com/api-reference-v5/android-api/Components/IMediaDataCenter/ILiveStreamManager.html)
+
+### {{{(item.highlights && item.highlights.title) || item.title}}}
+
+{{{(item.highlights && item.highlights.content[0]) || item.title}}}
+[Load More](javascript:;)
+[Mobile SDK](https://developer.dji.com/mobile-sdk)
+[UX SDK](https://developer.dji.com/ux-sdk)
+[Onboard SDK](https://developer.dji.com/onboard-sdk)
+[Payload SDK](https://developer.dji.com/payload-sdk)
+[Windows SDK](https://developer.dji.com/windows-sdk)
+[Products](https://developer.dji.com/products)
+[Stack Overflow](http://stackoverflow.com/questions/tagged/dji-sdk)
+[YouTube](https://www.youtube.com/channel/UCPQwN5xsob8zZGIcDhkYqUA)
+[Twitter](https://twitter.com/djidevelopers)
+[dev@dji.com](mailto:dev@dji.com)
+[dev@dji.com](mailto:dev@dji.com)
+[billing-dev@dji.com](mailto:billing-dev@dji.com)
+[Privacy Policy](https://developer.dji.com/policies/privacy)
+[Terms of Use](https://developer.dji.com/policies/terms)

@@ -1,0 +1,180 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="320dp"
+    android:layout_height="wrap_content"
+    android:background="#EE111111"
+    android:fillViewport="false">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="16dp">
+
+        <TextView
+            android:id="@+id/tvWpTitle"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="> WAYPOINT_CONFIG"
+            android:textColor="#00FF00"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:fontFamily="monospace"
+            android:layout_marginBottom="16dp"/>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="ALTITUDE (m):"
+            android:textColor="#00FF00"
+            android:textSize="12sp"
+            android:fontFamily="monospace" />
+
+        <EditText
+            android:id="@+id/etWpAltitude"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:inputType="numberDecimal"
+            android:text="50"
+            android:textColor="#FFFFFF"
+            android:fontFamily="monospace"
+            android:backgroundTint="#00FF00"
+            android:layout_marginBottom="8dp"/>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="SPEED (m/s):"
+            android:textColor="#00FF00"
+            android:textSize="12sp"
+            android:fontFamily="monospace" />
+
+        <EditText
+            android:id="@+id/etWpSpeed"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:inputType="numberDecimal"
+            android:text="5"
+            android:textColor="#FFFFFF"
+            android:fontFamily="monospace"
+            android:backgroundTint="#00FF00"
+            android:layout_marginBottom="8dp"/>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="MOVEMENT METHOD:"
+            android:textColor="#00FF00"
+            android:textSize="12sp"
+            android:fontFamily="monospace" />
+
+        <Spinner
+            android:id="@+id/spWpMovementMethod"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:backgroundTint="#00FF00"
+            android:layout_marginBottom="8dp"/>
+
+        <!-- ORBIT PARAMS (shown only when ORBIT is selected) -->
+        <LinearLayout
+            android:id="@+id/llOrbitParams"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:visibility="gone"
+            android:background="#11FFFF00"
+            android:padding="8dp"
+            android:layout_marginBottom="8dp">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="ORBIT RADIUS (m):"
+                android:textColor="#FFFF00"
+                android:textSize="12sp"
+                android:fontFamily="monospace" />
+
+            <EditText
+                android:id="@+id/etWpOrbitRadius"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:inputType="numberDecimal"
+                android:text="30"
+                android:textColor="#FFFF00"
+                android:fontFamily="monospace"
+                android:backgroundTint="#FFFF00"
+                android:layout_marginBottom="8dp"/>
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="ORBIT LOOPS:"
+                android:textColor="#FFFF00"
+                android:textSize="12sp"
+                android:fontFamily="monospace" />
+
+            <EditText
+                android:id="@+id/etWpOrbitLoops"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:inputType="number"
+                android:text="1"
+                android:textColor="#FFFF00"
+                android:fontFamily="monospace"
+                android:backgroundTint="#FFFF00"
+                android:layout_marginBottom="4dp"/>
+
+        </LinearLayout>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="ACTION:"
+            android:textColor="#00FF00"
+            android:textSize="12sp"
+            android:fontFamily="monospace" />
+
+        <Spinner
+            android:id="@+id/spWpAction"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:backgroundTint="#00FF00"
+            android:layout_marginBottom="16dp"/>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/btnWpDelete"
+                android:layout_width="0dp"
+                android:layout_weight="1"
+                android:layout_height="wrap_content"
+                android:text="[ DEL ]"
+                android:textColor="#FF0000"
+                android:textSize="14sp"
+                android:textStyle="bold"
+                android:fontFamily="monospace"
+                android:gravity="center"
+                android:background="#22FF0000"
+                android:padding="8dp"
+                android:layout_marginEnd="4dp" />
+
+            <TextView
+                android:id="@+id/btnWpSave"
+                android:layout_width="0dp"
+                android:layout_weight="1"
+                android:layout_height="wrap_content"
+                android:text="[ SAVE ]"
+                android:textColor="#00FF00"
+                android:textSize="14sp"
+                android:textStyle="bold"
+                android:fontFamily="monospace"
+                android:gravity="center"
+                android:background="#2200FF00"
+                android:padding="8dp" />
+        </LinearLayout>
+
+    </LinearLayout>
+</ScrollView>

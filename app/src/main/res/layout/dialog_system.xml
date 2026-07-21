@@ -1,0 +1,483 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:minWidth="350dp"
+    android:orientation="vertical"
+    android:background="#EE000000"
+    android:padding="16dp">
+
+    <!-- NAVBAR TABS -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginBottom="16dp">
+        
+        <TextView
+            android:id="@+id/tabInfo"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="[ INFO ]"
+            android:textColor="#000000"
+            android:textSize="14sp"
+            android:fontFamily="monospace"
+            android:textStyle="bold"
+            android:padding="8dp"
+            android:gravity="center"
+            android:background="#00FF00"
+            android:layout_marginEnd="4dp" />
+            
+        <TextView
+            android:id="@+id/tabCfg"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="[ CFG ]"
+            android:textColor="#00FF00"
+            android:textSize="14sp"
+            android:fontFamily="monospace"
+            android:textStyle="bold"
+            android:padding="8dp"
+            android:gravity="center"
+            android:background="#2200FF00"
+            android:layout_marginEnd="4dp" />
+            
+        <TextView
+            android:id="@+id/tabLog"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="[ LOG ]"
+            android:textColor="#00FF00"
+            android:textSize="14sp"
+            android:fontFamily="monospace"
+            android:textStyle="bold"
+            android:padding="8dp"
+            android:gravity="center"
+            android:background="#2200FF00" />
+    </LinearLayout>
+
+    <!-- CONTENT AREA -->
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1">
+        
+        <FrameLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content">
+            
+            <!-- INFO TAB CONTENT -->
+            <LinearLayout
+                android:id="@+id/layoutInfo"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical">
+                
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="8dp"
+                    android:background="#2200FF00"
+                    android:layout_marginBottom="16dp">
+                    
+                    <TextView android:id="@+id/tvDroneModel" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="MOD: UNKNOWN" android:textColor="#00FF00" android:textSize="12sp" android:fontFamily="monospace" />
+                    <TextView android:id="@+id/tvDroneStatus" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="DRN: OFFLINE" android:textColor="#00FF00" android:textSize="12sp" android:fontFamily="monospace" />
+                    <TextView android:id="@+id/tvRCStatus" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="LNK: OFFLINE" android:textColor="#00FF00" android:textSize="12sp" android:fontFamily="monospace" />
+                    <TextView android:id="@+id/tvEngineStatus" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="ENG: INACTIVE" android:textColor="#00FF00" android:textSize="12sp" android:fontFamily="monospace" />
+                    <TextView android:id="@+id/tvSimulatorStatus" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="SIMULATOR ACTIVE" android:textColor="#FF0000" android:textSize="12sp" android:textStyle="bold" android:fontFamily="monospace" android:visibility="gone" android:layout_marginTop="4dp" />
+                </LinearLayout>
+                    
+                <TextView
+                    android:id="@+id/tvSNInfo"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="[ SYSTEM SERIAL NUMBERS ]\nFetching..."
+                    android:textColor="#00FF00"
+                    android:textSize="12sp"
+                    android:fontFamily="monospace"
+                    android:padding="8dp"
+                    android:layout_marginBottom="16dp"
+                    android:background="#2200FF00" />
+                    
+                <TextView
+                    android:id="@+id/btnPair"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="[ INITIATE RC LINKING ]"
+                    android:textColor="#00FF00"
+                    android:textSize="14sp"
+                    android:fontFamily="monospace"
+                    android:padding="8dp"
+                    android:layout_marginBottom="8dp"
+                    android:background="#2200FF00" />
+
+                <TextView
+                    android:id="@+id/btnSimulator"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="[ HARDWARE SIMULATOR: OFF ]"
+                    android:textColor="#00FF00"
+                    android:textSize="14sp"
+                    android:fontFamily="monospace"
+                    android:padding="8dp"
+                    android:layout_marginBottom="8dp"
+                    android:background="#2200FF00" />
+                    
+                <TextView
+                    android:id="@+id/btnTestAlerts"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="[ INITIATE TEST ALERTS ]"
+                    android:textColor="#FF0000"
+                    android:textSize="14sp"
+                    android:fontFamily="monospace"
+                    android:padding="8dp"
+                    android:gravity="center"
+                    android:layout_marginTop="8dp"
+                    android:background="#22FF0000" />
+            </LinearLayout>
+
+            <!-- CFG TAB CONTENT -->
+            <LinearLayout
+                android:id="@+id/layoutCfg"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:visibility="gone">
+                
+                <TextView
+                    android:id="@+id/btnGimbalSens"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="[ GIMBAL SENSITIVITY: 0.2 ]"
+                    android:textColor="#00FF00"
+                    android:textSize="14sp"
+                    android:fontFamily="monospace"
+                    android:padding="8dp"
+                    android:layout_marginBottom="8dp"
+                    android:background="#2200FF00" />
+
+                <TextView
+                    android:id="@+id/btnFlightSens"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="[ FLIGHT SENSITIVITY: 1.0 ]"
+                    android:textColor="#00FF00"
+                    android:textSize="14sp"
+                    android:fontFamily="monospace"
+                    android:padding="8dp"
+                    android:layout_marginBottom="8dp"
+                    android:background="#2200FF00" />
+
+                <TextView
+                    android:id="@+id/btnTouchAction"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="[ TOUCH ACTION: GIMBAL ]"
+                    android:textColor="#00FF00"
+                    android:textSize="14sp"
+                    android:fontFamily="monospace"
+                    android:padding="8dp"
+                    android:layout_marginBottom="8dp"
+                    android:background="#2200FF00" />
+
+                <TextView
+                    android:id="@+id/btnAutoSens"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="[ AUTO SENSITIVITY: ON ]"
+                    android:textColor="#00FF00"
+                    android:textSize="14sp"
+                    android:fontFamily="monospace"
+                    android:padding="8dp"
+                    android:layout_marginBottom="8dp"
+                    android:background="#2200FF00" />
+
+                <TextView
+                    android:id="@+id/btnInvertVertical"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="[ INVERT Y-AXIS: OFF ]"
+                    android:textColor="#00FF00"
+                    android:textSize="14sp"
+                    android:fontFamily="monospace"
+                    android:padding="8dp"
+                    android:layout_marginBottom="8dp"
+                    android:background="#2200FF00" />
+
+                <TextView
+                    android:id="@+id/btnInvertHorizontal"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="[ INVERT X-AXIS: OFF ]"
+                    android:textColor="#00FF00"
+                    android:textSize="14sp"
+                    android:fontFamily="monospace"
+                    android:padding="8dp"
+                    android:layout_marginBottom="16dp"
+                    android:background="#2200FF00" />
+                    
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="EDGE SERVER CONFIG"
+                    android:textColor="#FFFFFF"
+                    android:textSize="12sp"
+                    android:fontFamily="monospace"
+                    android:textStyle="bold"
+                    android:layout_marginBottom="8dp" />
+                    
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:layout_marginBottom="8dp">
+                    
+                    <EditText
+                        android:id="@+id/etServerIp"
+                        android:layout_width="0dp"
+                        android:layout_weight="2"
+                        android:layout_height="wrap_content"
+                        android:hint="IP Address"
+                        android:textColorHint="#555"
+                        android:textColor="#00FF00"
+                        android:textSize="14sp"
+                        android:fontFamily="monospace"
+                        android:background="#2200FF00"
+                        android:padding="8dp"
+                        android:layout_marginEnd="8dp" />
+                        
+                    <EditText
+                        android:id="@+id/etServerPort"
+                        android:layout_width="0dp"
+                        android:layout_weight="1"
+                        android:layout_height="wrap_content"
+                        android:hint="Port"
+                        android:textColorHint="#555"
+                        android:textColor="#00FF00"
+                        android:textSize="14sp"
+                        android:inputType="number"
+                        android:fontFamily="monospace"
+                        android:background="#2200FF00"
+                        android:padding="8dp" />
+                </LinearLayout>
+                    
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:layout_marginBottom="8dp">
+                    
+                    <EditText
+                        android:id="@+id/etMqttUser"
+                        android:layout_width="0dp"
+                        android:layout_weight="1"
+                        android:layout_height="wrap_content"
+                        android:hint="MQTT User"
+                        android:textColorHint="#555"
+                        android:textColor="#00FF00"
+                        android:textSize="14sp"
+                        android:fontFamily="monospace"
+                        android:background="#2200FF00"
+                        android:padding="8dp"
+                        android:layout_marginEnd="8dp" />
+                        
+                    <EditText
+                        android:id="@+id/etMqttPass"
+                        android:layout_width="0dp"
+                        android:layout_weight="1"
+                        android:layout_height="wrap_content"
+                        android:hint="MQTT Pass"
+                        android:textColorHint="#555"
+                        android:textColor="#00FF00"
+                        android:textSize="14sp"
+                        android:fontFamily="monospace"
+                        android:background="#2200FF00"
+                        android:padding="8dp"
+                        android:inputType="textPassword" />
+                </LinearLayout>
+                    
+                <Button
+                    android:id="@+id/btnConnectServer"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="[ CONNECT TO SERVER ]"
+                    android:textColor="#000000"
+                    android:backgroundTint="#00FF00"
+                    android:fontFamily="monospace"
+                    android:textStyle="bold"
+                    android:layout_marginBottom="16dp" />
+                    
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="RTMP STREAMING CONFIG"
+                    android:textColor="#FFFFFF"
+                    android:textSize="12sp"
+                    android:fontFamily="monospace"
+                    android:textStyle="bold"
+                    android:layout_marginBottom="8dp" />
+                    
+                <EditText
+                    android:id="@+id/etRtmpUrl"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:textColor="#00FF00"
+                    android:background="#2200FF00"
+                    android:padding="8dp"
+                    android:hint="rtmp://rtc.blackeye.id:1936/dji-sdk-view-asli"
+                    android:textColorHint="#555555"
+                    android:inputType="textUri"
+                    android:text="rtmp://rtc.blackeye.id:1936/dji-sdk-view-asli"
+                    android:layout_marginBottom="8dp"
+                    android:fontFamily="monospace"/>
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:layout_marginBottom="16dp">
+                    <Button
+                        android:id="@+id/btnStartRtmp"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="START RTMP"
+                        android:backgroundTint="#4400FF00"
+                        android:textColor="#FFFFFF"
+                        android:fontFamily="monospace"
+                        android:textSize="10sp"
+                        android:layout_marginEnd="4dp"/>
+                    <Button
+                        android:id="@+id/btnStopRtmp"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="STOP RTMP"
+                        android:backgroundTint="#88FF0000"
+                        android:textColor="#FFFFFF"
+                        android:fontFamily="monospace"
+                        android:textSize="10sp"/>
+                </LinearLayout>
+                    
+                <Button
+                    android:id="@+id/btnWebOdmConfig"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="[ CONFIGURE WEBODM ]"
+                    android:textColor="#000000"
+                    android:backgroundTint="#00FF00"
+                    android:fontFamily="monospace"
+                    android:textStyle="bold"
+                    android:layout_marginTop="8dp" />
+                    
+                <TextView
+                    android:id="@+id/btnToggleRadar"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="[ OBSTACLE RADAR: ON ]"
+                    android:textColor="#00FF00"
+                    android:textSize="14sp"
+                    android:fontFamily="monospace"
+                    android:padding="8dp"
+                    android:layout_marginBottom="8dp"
+                    android:background="#2200FF00" />
+                    
+                <TextView
+                    android:id="@+id/btnRadarDistance"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="[ RADAR DISTANCE: 10m ]"
+                    android:textColor="#00FF00"
+                    android:textSize="14sp"
+                    android:fontFamily="monospace"
+                    android:padding="8dp"
+                    android:layout_marginBottom="16dp"
+                    android:background="#2200FF00" />
+
+                <TextView
+                    android:id="@+id/btnRthAltitude"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="[ RTH ALTITUDE: 100m ]"
+                    android:textColor="#00FF00"
+                    android:textSize="14sp"
+                    android:fontFamily="monospace"
+                    android:padding="8dp"
+                    android:layout_marginBottom="8dp"
+                    android:background="#2200FF00" />
+
+                <TextView
+                    android:id="@+id/btnObstacleAction"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="[ OBS ACTION: BRAKE ]"
+                    android:textColor="#00FF00"
+                    android:textSize="14sp"
+                    android:fontFamily="monospace"
+                    android:padding="8dp"
+                    android:layout_marginBottom="8dp"
+                    android:background="#2200FF00" />
+
+                <TextView
+                    android:id="@+id/btnSignalLossAction"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="[ SIGNAL LOSS ACTION: GO HOME ]"
+                    android:textColor="#00FF00"
+                    android:textSize="14sp"
+                    android:fontFamily="monospace"
+                    android:padding="8dp"
+                    android:layout_marginBottom="16dp"
+                    android:background="#2200FF00" />
+
+                <TextView
+                    android:id="@+id/btnDownload"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="[ FETCH LATEST MEDIA ]"
+                    android:textColor="#00FF00"
+                    android:textSize="14sp"
+                    android:fontFamily="monospace"
+                    android:padding="8dp"
+                    android:layout_marginBottom="16dp"
+                    android:background="#2200FF00" />
+            </LinearLayout>
+
+            <!-- LOG TAB CONTENT -->
+            <LinearLayout
+                android:id="@+id/layoutLog"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:visibility="gone">
+                
+                <TextView
+                    android:id="@+id/logText"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:minHeight="250dp"
+                    android:textColor="#00FF00"
+                    android:textSize="11sp"
+                    android:fontFamily="monospace" />
+            </LinearLayout>
+        </FrameLayout>
+    </ScrollView>
+
+    <TextView
+        android:id="@+id/btnCloseSystem"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="[ CLOSE ]"
+        android:textColor="#00FF00"
+        android:textSize="14sp"
+        android:fontFamily="monospace"
+        android:padding="8dp"
+        android:gravity="center"
+        android:layout_marginTop="16dp"
+        android:background="#2200FF00" />
+
+</LinearLayout>

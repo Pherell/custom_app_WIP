@@ -1,0 +1,178 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="300dp"
+    android:layout_height="wrap_content"
+    android:background="@drawable/bg_glass_btn_active"
+    android:padding="16dp">
+
+    <TextView
+        android:id="@+id/tvTitle"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="WebODM Server Config"
+        android:textColor="#FFFFFF"
+        android:textSize="14sp"
+        android:textStyle="bold"
+        android:fontFamily="monospace"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent" />
+
+    <TextView
+        android:id="@+id/tvLabel"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="WebODM Server URL:"
+        android:textColor="#DDDDDD"
+        android:textSize="10sp"
+        android:fontFamily="monospace"
+        android:layout_marginTop="12dp"
+        app:layout_constraintTop_toBottomOf="@id/tvTitle"
+        app:layout_constraintStart_toStartOf="parent" />
+
+    <EditText
+        android:id="@+id/etServerUrl"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:textColor="#00FF00"
+        android:textSize="12sp"
+        android:fontFamily="monospace"
+        android:backgroundTint="#00FF00"
+        android:inputType="textUri"
+        android:hint="http://192.168.1.100:8000"
+        android:textColorHint="#555555"
+        android:layout_marginTop="4dp"
+        app:layout_constraintTop_toBottomOf="@id/tvLabel"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent" />
+        
+    <TextView
+        android:id="@+id/tvLabelUsername"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Username:"
+        android:textColor="#DDDDDD"
+        android:textSize="10sp"
+        android:fontFamily="monospace"
+        android:layout_marginTop="8dp"
+        app:layout_constraintTop_toBottomOf="@id/etServerUrl"
+        app:layout_constraintStart_toStartOf="parent" />
+
+    <EditText
+        android:id="@+id/etUsername"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:textColor="#00FF00"
+        android:textSize="12sp"
+        android:fontFamily="monospace"
+        android:backgroundTint="#00FF00"
+        android:inputType="text"
+        android:hint="admin"
+        android:textColorHint="#555555"
+        android:layout_marginTop="4dp"
+        app:layout_constraintTop_toBottomOf="@id/tvLabelUsername"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent" />
+
+    <TextView
+        android:id="@+id/tvLabelPassword"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Password:"
+        android:textColor="#DDDDDD"
+        android:textSize="10sp"
+        android:fontFamily="monospace"
+        android:layout_marginTop="8dp"
+        app:layout_constraintTop_toBottomOf="@id/etUsername"
+        app:layout_constraintStart_toStartOf="parent" />
+
+    <EditText
+        android:id="@+id/etPassword"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:textColor="#00FF00"
+        android:textSize="12sp"
+        android:fontFamily="monospace"
+        android:backgroundTint="#00FF00"
+        android:inputType="textPassword"
+        android:hint="********"
+        android:textColorHint="#555555"
+        android:layout_marginTop="4dp"
+        app:layout_constraintTop_toBottomOf="@id/tvLabelPassword"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent" />
+        
+    <TextView
+        android:id="@+id/btnFetchProjects"
+        android:layout_width="0dp"
+        android:layout_height="24dp"
+        android:text="FETCH PROJECTS"
+        android:textColor="#FFFFFF"
+        android:textSize="10sp"
+        android:textStyle="bold"
+        android:fontFamily="monospace"
+        android:gravity="center"
+        android:background="@drawable/bg_glass_btn"
+        android:layout_marginTop="12dp"
+        app:layout_constraintTop_toBottomOf="@id/etPassword"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent" />
+        
+    <TextView
+        android:id="@+id/tvLabelProject"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Select Project:"
+        android:textColor="#DDDDDD"
+        android:textSize="10sp"
+        android:fontFamily="monospace"
+        android:layout_marginTop="12dp"
+        app:layout_constraintTop_toBottomOf="@id/btnFetchProjects"
+        app:layout_constraintStart_toStartOf="parent" />
+        
+    <Spinner
+        android:id="@+id/spnProjects"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:backgroundTint="#00FF00"
+        app:layout_constraintTop_toBottomOf="@id/tvLabelProject"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent" />
+
+    <TextView
+        android:id="@+id/btnCancel"
+        android:layout_width="0dp"
+        android:layout_height="32dp"
+        android:text="CANCEL"
+        android:textColor="#FFFFFF"
+        android:textSize="12sp"
+        android:textStyle="bold"
+        android:fontFamily="monospace"
+        android:gravity="center"
+        android:background="@drawable/bg_glass_btn"
+        android:layout_marginTop="16dp"
+        android:layout_marginEnd="8dp"
+        app:layout_constraintTop_toBottomOf="@id/spnProjects"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toStartOf="@id/btnSave" />
+
+    <TextView
+        android:id="@+id/btnSave"
+        android:layout_width="0dp"
+        android:layout_height="32dp"
+        android:text="SAVE"
+        android:textColor="#00FF00"
+        android:textSize="12sp"
+        android:textStyle="bold"
+        android:fontFamily="monospace"
+        android:gravity="center"
+        android:background="@drawable/bg_glass_btn"
+        android:layout_marginTop="16dp"
+        android:layout_marginStart="8dp"
+        app:layout_constraintTop_toBottomOf="@id/spnProjects"
+        app:layout_constraintStart_toEndOf="@id/btnCancel"
+        app:layout_constraintEnd_toEndOf="parent" />
+
+</androidx.constraintlayout.widget.ConstraintLayout>

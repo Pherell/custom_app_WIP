@@ -1,0 +1,20 @@
+[versions]
+agp = "8.7.0"
+kotlin = "2.1.0"
+coreKtx = "1.13.1"
+appcompat = "1.7.0"
+material = "1.12.0"
+djiSdk = "5.18.0"
+
+[libraries]
+androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
+androidx-appcompat = { group = "androidx.appcompat", name = "appcompat", version.ref = "appcompat" }
+material = { group = "com.google.android.material", name = "material", version.ref = "material" }
+dji-sdk-v5-aircraft = { module = "com.dji:dji-sdk-v5-aircraft", version.ref = "djiSdk" }
+dji-sdk-v5-aircraft-provided = { module = "com.dji:dji-sdk-v5-aircraft-provided", version.ref = "djiSdk" }
+dji-sdk-v5-networkImp = { module = "com.dji:dji-sdk-v5-networkImp", version.ref = "djiSdk" }
+dji-sdk-v5-livestream = { module = "com.dji:dji-sdk-v5-livestream", version.ref = "djiSdk" }
+
+[plugins]
+android-application = { id = "com.android.application", version.ref = "agp" }
+kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }

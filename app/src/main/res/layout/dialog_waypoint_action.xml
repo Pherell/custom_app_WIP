@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="16dp"
+    android:background="#1A1A1A">
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="WAYPOINT ACTION"
+        android:textColor="#00FF00"
+        android:textSize="18sp"
+        android:textStyle="bold"
+        android:fontFamily="monospace"
+        android:gravity="center"
+        android:layout_marginBottom="16dp" />
+
+    <Button
+        android:id="@+id/btnActionFly"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="JUST FLY"
+        android:textColor="#FFFFFF"
+        android:backgroundTint="#333333"
+        android:layout_marginBottom="8dp" />
+
+    <Button
+        android:id="@+id/btnActionLockPoi"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="LOCK GIMBAL TO POI (SURVEILLANCE)"
+        android:textColor="#FFFFFF"
+        android:backgroundTint="#000088"
+        android:layout_marginBottom="8dp" />
+
+    <Button
+        android:id="@+id/btnActionUnlockPoi"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="UNLOCK GIMBAL"
+        android:textColor="#FFFFFF"
+        android:backgroundTint="#333333"
+        android:layout_marginBottom="8dp" />
+
+    <Button
+        android:id="@+id/btnActionPhoto"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="CAPTURE PHOTO (SELECT POI)"
+        android:textColor="#FFFFFF"
+        android:backgroundTint="#333333"
+        android:layout_marginBottom="8dp" />
+
+    <Button
+        android:id="@+id/btnActionStartRecord"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="START RECORD (SELECT POI)"
+        android:textColor="#FFFFFF"
+        android:backgroundTint="#333333"
+        android:layout_marginBottom="8dp" />
+
+    <Button
+        android:id="@+id/btnActionStopRecord"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="STOP RECORD"
+        android:textColor="#FFFFFF"
+        android:backgroundTint="#333333" />
+</LinearLayout>

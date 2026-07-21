@@ -1,0 +1,36 @@
+*.iml
+.gradle
+/local.properties
+/.idea/caches
+/.idea/libraries
+/.idea/modules.xml
+/.idea/workspace.xml
+/.idea/navEditor.xml
+/.idea/assetWizardSettings.xml
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+
+# Backup archives
+*.tar.gz
+tacical3
+tactical_1
+
+# IDE/Agent folders
+.gemini/
+.agents/
+.claude/
+
+# External cloned repositories
+*_clone/
+
+# Node dependencies and build outputs
+node_modules/
+**/node_modules/
+dist/
+**/dist/
+temp_aar/
+
