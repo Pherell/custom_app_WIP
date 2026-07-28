@@ -86,7 +86,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    data class TacticalWaypoint(val geoPoint: GeoPoint, var altitude: Double = 50.0, var speed: Double = 5.0, var action: Int = 0, var actionType: String = "FLY", var poiTarget: GeoPoint? = null, var gimbalPitch: Double? = null, var osmdroidMarker: org.osmdroid.views.overlay.Marker? = null, var preflightExecuted: Boolean = false, var heading: Double? = null, var dwellTime: Double? = null, var movementMethod: String = "default", var orbitRadius: Double = 30.0, var orbitLoops: Int = 1)
+    data class TacticalWaypoint(val geoPoint: GeoPoint, var altitude: Double = 50.0, var speed: Double = 5.0, var action: Int = 0, var actionType: String = "FLY", var poiTarget: GeoPoint? = null, var gimbalPitch: Double? = null, var osmdroidMarker: org.osmdroid.views.overlay.Marker? = null, var preflightExecuted: Boolean = false, var heading: Double? = null, var dwellTime: Double? = null, var movementMethod: String = "default", var orbitRadius: Double = 30.0, var orbitLoops: Int = 1, var name: String = "")
 
     private lateinit var mqttService: MqttService
     private lateinit var fpvSurface: SurfaceView
@@ -1232,13 +1232,14 @@ class MainActivity : AppCompatActivity() {
 
     private fun addWaypointMarker(p: GeoPoint) {
         val wp = TacticalWaypoint(p)
+        wp.name = "waypoint_${tacticalWaypoints.size + 1}"
         tacticalWaypoints.add(wp)
         // Update Map Marker
         val marker = org.osmdroid.views.overlay.Marker(mapView)
         marker.position = p
         marker.icon = androidx.core.content.ContextCompat.getDrawable(this, R.drawable.ic_waypoint_dot)
         marker.setAnchor(org.osmdroid.views.overlay.Marker.ANCHOR_CENTER, org.osmdroid.views.overlay.Marker.ANCHOR_CENTER)
-        marker.title = "WP ${tacticalWaypoints.size}"
+        marker.title = wp.name
         marker.setOnMarkerClickListener { m, _ ->
             showWaypointActionDialog(wp, m as org.osmdroid.views.overlay.Marker)
             true
@@ -1247,6 +1248,7 @@ class MainActivity : AppCompatActivity() {
         mapView.overlays.add(marker)
         updateFlightPathLine()
         mapView.invalidate()
+        publishWaypointsUpdate()
         
         // Show action dialog immediately upon placing the waypoint
         showWaypointActionDialog(wp, marker)
@@ -1260,6 +1262,7 @@ class MainActivity : AppCompatActivity() {
         dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
         
         val tvTitle = dialogView.findViewById<TextView>(R.id.tvWpTitle)
+        val etName = dialogView.findViewById<android.widget.EditText>(R.id.etWpName)
         val etAlt = dialogView.findViewById<android.widget.EditText>(R.id.etWpAltitude)
         val etSpeed = dialogView.findViewById<android.widget.EditText>(R.id.etWpSpeed)
         val spMovementMethod = dialogView.findViewById<android.widget.Spinner>(R.id.spWpMovementMethod)
@@ -1273,6 +1276,7 @@ class MainActivity : AppCompatActivity() {
         val index = tacticalWaypoints.indexOf(wp) + 1
         tvTitle.text = "> WP $index CONFIG"
         
+        etName?.setText(wp.name)
         etAlt.setText(wp.altitude.toString())
         etSpeed.setText(wp.speed.toString())
         etOrbitRadius.setText(wp.orbitRadius.toString())
@@ -1323,11 +1327,15 @@ class MainActivity : AppCompatActivity() {
             tacticalWaypoints.forEachIndexed { i, twp ->
                 val methodSuffix = if (twp.movementMethod != "linear") " (${twp.movementMethod.uppercase()})" else ""
                 val actionSuffix = if (twp.actionType != "FLY") " [${twp.actionType}]" else ""
-                twp.osmdroidMarker?.title = "WP ${i + 1}$methodSuffix$actionSuffix"
+                if (twp.name.startsWith("waypoint_")) {
+                    twp.name = "waypoint_${i + 1}"
+                }
+                twp.osmdroidMarker?.title = "${twp.name}$methodSuffix$actionSuffix"
             }
             showToast("Waypoint $index deleted")
             updateFlightPathLine()
             mapView.invalidate()
+            publishWaypointsUpdate()
             dialog.dismiss()
         }
         
@@ -1343,7 +1351,11 @@ class MainActivity : AppCompatActivity() {
             val spd = etSpeed.text.toString().toDoubleOrNull() ?: wp.speed
             val method = spMovementMethod.selectedItem.toString().lowercase()
             val action = spAction.selectedItem.toString()
+            val newName = etName?.text?.toString()?.trim() ?: wp.name
             
+            if (newName.isNotEmpty()) {
+                wp.name = newName
+            }
             wp.altitude = alt
             wp.speed = spd
             wp.movementMethod = method
@@ -1367,11 +1379,12 @@ class MainActivity : AppCompatActivity() {
             
             val methodSuffix = if (wp.movementMethod != "linear") " (${wp.movementMethod.uppercase()})" else ""
             val actionSuffix = if (wp.actionType != "FLY") " [${wp.actionType}]" else ""
-            marker.title = "WP $index$methodSuffix$actionSuffix"
+            marker.title = "${wp.name}$methodSuffix$actionSuffix"
             
-            showToast("Waypoint $index Config Saved")
+            showToast("Waypoint '${wp.name}' Config Saved")
             updateFlightPathLine()
             mapView.invalidate()
+            publishWaypointsUpdate()
             dialog.dismiss()
         }
         
@@ -1878,19 +1891,19 @@ class MainActivity : AppCompatActivity() {
                 if (Thread.currentThread().isInterrupted || droneAlt <= 1.0) {
                     runOnUiThread { showToast("Takeoff timed out. Aborting Tactical Mission.") }
                 } else {
-                    runOnUiThread { startVirtualStickLoop() }
+                    runOnUiThread { startVirtualStickLoop(expanded) }
                 }
             }, "TakeoffWait")
             takeoffWaitThread = t
             t.start()
         } else {
-            startVirtualStickLoop()
+            startVirtualStickLoop(expanded)
         }
     }
-    
-    private fun startVirtualStickLoop() {
+
+    private fun startVirtualStickLoop(executionList: List<TacticalWaypoint>) {
         showToast("Executing Tactical Mission via Virtual Stick Engine...")
-        log("Executing ${tacticalWaypoints.size} waypoints")
+        log("Executing ${executionList.size} waypoints")
         
         val vs = dji.v5.manager.aircraft.virtualstick.VirtualStickManager.getInstance()
         vs.enableVirtualStick(object : dji.v5.common.callback.CommonCallbacks.CompletionCallback {
@@ -1910,29 +1923,31 @@ class MainActivity : AppCompatActivity() {
                     var lastGimbalUpdate = 0L
                     var gpsLossCounter = 0
             
-            while (isMissionExecuting && tacticalWaypoints.isNotEmpty()) {
-                if (isFinishing) break
-                
-                if (!droneConnected) {
-                    runOnUiThread { showToast("CRITICAL: Drone Disconnected. Aborting Mission!") }
-                    isMissionExecuting = false
-                    break
-                }
-                
-                if (droneLat.isNaN() || droneLon.isNaN() || droneAlt.isNaN()) {
-                    gpsLossCounter++
-                    if (gpsLossCounter > 100) {
-                        runOnUiThread { showToast("CRITICAL: GPS Signal Lost. Aborting Mission!") }
-                        isMissionExecuting = false
-                        break
-                    }
-                    Thread.sleep(50)
-                    continue
-                }
-                gpsLossCounter = 0
-                
-                if (tacticalWaypoints.isEmpty()) break
-                val currentWp = tacticalWaypoints.firstOrNull() ?: break
+                    val wps = java.util.concurrent.CopyOnWriteArrayList<TacticalWaypoint>(executionList)
+                    
+                    while (isMissionExecuting && wps.isNotEmpty()) {
+                        if (isFinishing) break
+                        
+                        if (!droneConnected) {
+                            runOnUiThread { showToast("CRITICAL: Drone Disconnected. Aborting Mission!") }
+                            isMissionExecuting = false
+                            break
+                        }
+                        
+                        if (droneLat.isNaN() || droneLon.isNaN() || droneAlt.isNaN()) {
+                            gpsLossCounter++
+                            if (gpsLossCounter > 100) {
+                                runOnUiThread { showToast("CRITICAL: GPS Signal Lost. Aborting Mission!") }
+                                isMissionExecuting = false
+                                break
+                            }
+                            Thread.sleep(50)
+                            continue
+                        }
+                        gpsLossCounter = 0
+                        
+                        if (wps.isEmpty()) break
+                        val currentWp = wps.firstOrNull() ?: break
                 
                 if (!currentWp.preflightExecuted) {
                     val actions = currentWp.actionType.split(",").map { it.trim().uppercase() }.filter { it.isNotEmpty() }
@@ -2123,18 +2138,17 @@ class MainActivity : AppCompatActivity() {
                         }
                     }
                     
-                    if (tacticalWaypoints.isNotEmpty()) {
-                        tacticalWaypoints.removeAt(0)
+                    if (wps.isNotEmpty()) {
+                        wps.removeAt(0)
                     } else {
                         break
                     }
                     runOnUiThread {
-                        mapView.overlays.remove(currentWp.osmdroidMarker)
-                        updateFlightPathLine()
+                        currentWp.osmdroidMarker?.let { mapView.overlays.remove(it) }
                         mapView.invalidate()
                     }
                     
-                    if (tacticalWaypoints.isEmpty()) {
+                    if (wps.isEmpty()) {
                         isMissionExecuting = false
                         runOnUiThread { showToast("Waypoint Mission Completed") }
                     } else {
@@ -4350,6 +4364,34 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun publishWaypointsUpdate() {
+        if (!::mqttService.isInitialized) return
+        try {
+            val json = org.json.JSONObject()
+            json.put("event", "WAYPOINTS_UPDATED")
+            val wpsArray = org.json.JSONArray()
+            for (wp in tacticalWaypoints) {
+                val wpObj = org.json.JSONObject()
+                wpObj.put("name", wp.name)
+                wpObj.put("lat", wp.geoPoint.latitude)
+                wpObj.put("lng", wp.geoPoint.longitude)
+                wpObj.put("alt", wp.altitude)
+                wpObj.put("speed", wp.speed)
+                wpObj.put("movementMethod", wp.movementMethod)
+                wpObj.put("actionType", wp.actionType)
+                if (wp.poiTarget != null) {
+                    wpObj.put("poiLat", wp.poiTarget?.latitude)
+                    wpObj.put("poiLng", wp.poiTarget?.longitude)
+                }
+                wpsArray.put(wpObj)
+            }
+            json.put("waypoints", wpsArray)
+            mqttService.publishMission(jsonPayload = json.toString())
+        } catch (e: Exception) {
+            log("Error publishing waypoints update: ${e.message}")
+        }
+    }
+
     private fun handleMqttCommand(json: org.json.JSONObject) {
         lastGcsHeartbeatTime = System.currentTimeMillis()
         // H-01: dispatch off the UI thread; only post actual UI updates back via runOnUiThread
@@ -4367,7 +4409,8 @@ class MainActivity : AppCompatActivity() {
                         val lat = json.getDouble("lat")
                         val lon = json.getDouble("lon")
                         val alt = json.optDouble("alt", 50.0)
-                        val wp = TacticalWaypoint(org.osmdroid.util.GeoPoint(lat, lon), altitude = alt)
+                        val wpName = if (json.has("name")) json.getString("name") else "waypoint_${tacticalWaypoints.size + 1}"
+                        val wp = TacticalWaypoint(org.osmdroid.util.GeoPoint(lat, lon), name = wpName, altitude = alt)
                         
                         if (json.has("heading")) wp.heading = json.getDouble("heading")
                         if (json.has("dwellTime")) wp.dwellTime = json.getDouble("dwellTime")
@@ -4393,7 +4436,7 @@ class MainActivity : AppCompatActivity() {
                         marker.setAnchor(org.osmdroid.views.overlay.Marker.ANCHOR_CENTER, org.osmdroid.views.overlay.Marker.ANCHOR_CENTER)
                         val methodSuffix = if (wp.movementMethod != "linear") " (${wp.movementMethod.uppercase()})" else ""
                         val actionSuffix = if (wp.actionType != "FLY") " [${wp.actionType}]" else ""
-                        marker.title = "WP ${tacticalWaypoints.size}$methodSuffix$actionSuffix"
+                        marker.title = "${wp.name}$methodSuffix$actionSuffix"
                         marker.setOnMarkerClickListener { m, _ ->
                             showWaypointActionDialog(wp, m as org.osmdroid.views.overlay.Marker)
                             true
@@ -4402,12 +4445,15 @@ class MainActivity : AppCompatActivity() {
                         mapView.overlays.add(marker)
                         updateFlightPathLine()
                         mapView.invalidate()
+                        publishWaypointsUpdate()
                         showToast("C2: Added Waypoint")
                         publishCommandReceipt(transactionId, command, "COMPLETED")
                     }
                     "UPLOAD_MISSION" -> {
+                        tacticalWaypoints.forEach { wp ->
+                            wp.osmdroidMarker?.let { mapView.overlays.remove(it) }
+                        }
                         tacticalWaypoints.clear()
-                        mapView.overlays.removeAll { it is org.osmdroid.views.overlay.Marker && it.title?.startsWith("WP") == true }
                         
                         val wps = json.getJSONArray("waypoints")
                         for (i in 0 until wps.length()) {
@@ -4416,8 +4462,9 @@ class MainActivity : AppCompatActivity() {
                             val lon = wpData.getDouble("lng")
                             val alt = wpData.optDouble("alt", 50.0)
                             val speed = wpData.optDouble("speed", 10.0)
+                            val wpName = if (wpData.has("name")) wpData.getString("name") else "waypoint_${tacticalWaypoints.size + 1}"
                             
-                            val wp = TacticalWaypoint(org.osmdroid.util.GeoPoint(lat, lon), altitude = alt, speed = speed)
+                            val wp = TacticalWaypoint(org.osmdroid.util.GeoPoint(lat, lon), name = wpName, altitude = alt, speed = speed)
                             
                             if (wpData.has("heading")) wp.heading = wpData.getDouble("heading")
                             if (wpData.has("dwellTime")) wp.dwellTime = wpData.getDouble("dwellTime")
@@ -4443,7 +4490,7 @@ class MainActivity : AppCompatActivity() {
                             marker.setAnchor(org.osmdroid.views.overlay.Marker.ANCHOR_CENTER, org.osmdroid.views.overlay.Marker.ANCHOR_CENTER)
                             val methodSuffix = if (wp.movementMethod != "linear") " (${wp.movementMethod.uppercase()})" else ""
                             val actionSuffix = if (wp.actionType != "FLY") " [${wp.actionType}]" else ""
-                            marker.title = "WP ${tacticalWaypoints.size}$methodSuffix$actionSuffix"
+                            marker.title = "${wp.name}$methodSuffix$actionSuffix"
                             marker.setOnMarkerClickListener { m, _ ->
                                 showWaypointActionDialog(wp, m as org.osmdroid.views.overlay.Marker)
                                 true
@@ -4453,6 +4500,7 @@ class MainActivity : AppCompatActivity() {
                         }
                         updateFlightPathLine()
                         mapView.invalidate()
+                        publishWaypointsUpdate()
                         showToast("C2: Uploaded Mission with ${tacticalWaypoints.size} WPs")
                         publishCommandReceipt(transactionId, command, "COMPLETED")
                     }
@@ -4883,6 +4931,94 @@ class MainActivity : AppCompatActivity() {
                             }
                         })
                     }
+                    "RENAME_WAYPOINT" -> {
+                        publishCommandReceipt(transactionId, command, "EXECUTING")
+                        val newName = json.getString("new_name")
+                        var found = false
+                        
+                        if (json.has("index")) {
+                            val idx = json.getInt("index")
+                            if (idx >= 0 && idx < tacticalWaypoints.size) {
+                                val wp = tacticalWaypoints[idx]
+                                wp.name = newName
+                                runOnUiThread {
+                                    val methodSuffix = if (wp.movementMethod != "linear") " (${wp.movementMethod.uppercase()})" else ""
+                                    val actionSuffix = if (wp.actionType != "FLY") " [${wp.actionType}]" else ""
+                                    wp.osmdroidMarker?.title = "${wp.name}$methodSuffix$actionSuffix"
+                                    mapView.invalidate()
+                                }
+                                found = true
+                            }
+                        } else if (json.has("name")) {
+                            val nameToFind = json.getString("name")
+                            val wp = tacticalWaypoints.firstOrNull { it.name.equals(nameToFind, ignoreCase = true) }
+                            if (wp != null) {
+                                wp.name = newName
+                                runOnUiThread {
+                                    val methodSuffix = if (wp.movementMethod != "linear") " (${wp.movementMethod.uppercase()})" else ""
+                                    val actionSuffix = if (wp.actionType != "FLY") " [${wp.actionType}]" else ""
+                                    wp.osmdroidMarker?.title = "${wp.name}$methodSuffix$actionSuffix"
+                                    mapView.invalidate()
+                                }
+                                found = true
+                            }
+                        }
+                        
+                        if (found) {
+                            runOnUiThread { showToast("C2: Waypoint renamed to $newName") }
+                            publishWaypointsUpdate()
+                            publishCommandReceipt(transactionId, command, "COMPLETED")
+                        } else {
+                            publishCommandReceipt(transactionId, command, "FAILED", errorCode = -30, errorMessage = "Waypoint not found by index/name")
+                        }
+                    }
+                    "UPDATE_WAYPOINT" -> {
+                        publishCommandReceipt(transactionId, command, "EXECUTING")
+                        var foundWp: TacticalWaypoint? = null
+                        
+                        if (json.has("index")) {
+                            val idx = json.getInt("index")
+                            if (idx >= 0 && idx < tacticalWaypoints.size) {
+                                foundWp = tacticalWaypoints[idx]
+                            }
+                        } else if (json.has("name")) {
+                            val nameToFind = json.getString("name")
+                            foundWp = tacticalWaypoints.firstOrNull { it.name.equals(nameToFind, ignoreCase = true) }
+                        }
+                        
+                        if (foundWp != null) {
+                            if (json.has("altitude")) foundWp.altitude = json.getDouble("altitude")
+                            if (json.has("speed")) foundWp.speed = json.getDouble("speed")
+                            if (json.has("movementMethod")) foundWp.movementMethod = json.getString("movementMethod")
+                            if (json.has("orbitRadius")) foundWp.orbitRadius = json.getDouble("orbitRadius")
+                            if (json.has("orbitLoops")) foundWp.orbitLoops = json.getInt("orbitLoops")
+                            
+                            if (json.has("actionType")) {
+                                foundWp.actionType = json.getString("actionType")
+                                if (json.has("poiLat") && json.has("poiLng")) {
+                                    foundWp.poiTarget = org.osmdroid.util.GeoPoint(json.getDouble("poiLat"), json.getDouble("poiLng"))
+                                } else if (foundWp.actionType != "LOCK_POI" && foundWp.actionType != "PHOTO" && foundWp.actionType != "START_RECORD") {
+                                    foundWp.poiTarget = null
+                                }
+                                if (json.has("gimbalPitch")) {
+                                    foundWp.gimbalPitch = json.getDouble("gimbalPitch")
+                                }
+                            }
+                            
+                            val wp = foundWp // Smart-cast
+                            runOnUiThread {
+                                val methodSuffix = if (wp.movementMethod != "linear") " (${wp.movementMethod.uppercase()})" else ""
+                                val actionSuffix = if (wp.actionType != "FLY") " [${wp.actionType}]" else ""
+                                wp.osmdroidMarker?.title = "${wp.name}$methodSuffix$actionSuffix"
+                                updateFlightPathLine()
+                                mapView.invalidate()
+                            }
+                            publishWaypointsUpdate()
+                            publishCommandReceipt(transactionId, command, "COMPLETED")
+                        } else {
+                            publishCommandReceipt(transactionId, command, "FAILED", errorCode = -30, errorMessage = "Waypoint not found by index/name")
+                        }
+                    }
                     else -> {
                         publishCommandReceipt(transactionId, command, "FAILED", errorCode = -404, errorMessage = "Unknown command: $command")
                     }
@@ -5140,14 +5276,20 @@ class MainActivity : AppCompatActivity() {
         // duplicating waypoints with default values (BUG-06 fix)
         mapView.overlays.removeAll { it is org.osmdroid.views.overlay.Marker && shapeVertexMarkers.indexOf(it) == -1 && it != droneMarker && it != homeMapMarker }
         for ((index, wp) in tacticalWaypoints.withIndex()) {
+            wp.name = "waypoint_${index + 1}"
             val marker = org.osmdroid.views.overlay.Marker(mapView)
             marker.position = wp.geoPoint
             marker.icon = androidx.core.content.ContextCompat.getDrawable(this, R.drawable.ic_nato_waypoint)
             marker.setAnchor(org.osmdroid.views.overlay.Marker.ANCHOR_CENTER, org.osmdroid.views.overlay.Marker.ANCHOR_CENTER)
-            marker.title = "WP ${index + 1}"
+            marker.title = wp.name
+            marker.setOnMarkerClickListener { m, _ ->
+                showWaypointActionDialog(wp, m as org.osmdroid.views.overlay.Marker)
+                true
+            }
             wp.osmdroidMarker = marker
             mapView.overlays.add(marker)
         }
+        publishWaypointsUpdate()
         
         updateFlightPathLine()
         

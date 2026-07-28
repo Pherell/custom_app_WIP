@@ -1,5 +1,16 @@
 # Tactical Drone C2 Server Specification
 
+> **Changelog — 2026-07-28 (Audit #16 Topic Namespace Standardization & AR Thread Safety)**
+> - Standardized backend (`server.js`) and frontend web UI (`App.jsx`) MQTT topic subscriptions and command publishing strictly to the `dji-sdk/fleet/` namespace (eliminating legacy `avarell/fleet/` and `tactical/fleet/` mismatches).
+> - Hardened thread safety in `ARLandingOverlayView.kt` by replacing `invalidate()` with `postInvalidate()` to prevent `CalledFromWrongThreadException` crashes when invoked from background telemetry/vision threads.
+> - Ensured `ARVisionLandingManager.kt` UI callback dispatches run safely on `Handler(Looper.getMainLooper())`.
+>
+> **Changelog — 2026-07-21 (Audit #15 Waypoint & Storage Hardening)**
+> - Fixed Virtual Stick fallback execution to use the orbit-expanded waypoints list instead of raw unexpanded tacticalWaypoints.
+> - Avoided concurrent mutation and visual flickering of the main tacticalWaypoints list on background flight threads by utilizing a dedicated execution queue copy.
+> - Standardized the KMZ generator turn damping distance formatter with `java.util.Locale.US` to prevent parser failures under international locales.
+> - Resolved local storage leaks in the WebODM auto-upload module by ensuring temporary compressed images are cleared on sync failures or exceptions.
+>
 > **Changelog — 2026-07-20 (Arm/Disarm Safety Checks & LED Blink)**
 > - Replaced physical Virtual Stick CSC sequence for `ARM` / `START_ENGINE` with pre-flight connection, battery (min 20%), compass, and device health checks, followed by blinking the LEDs twice to indicate a successful virtual arm state.
 > - Modified `DISARM` to set the engine state to inactive instantly and update UI status indicator.
@@ -266,12 +277,42 @@ The drone publishes mission lifecycle events as they happen. All events share th
 | `KMZ_PROGRESS` | `waypoint_index: Int`, `wayline_id: Int`, `mission_file: String` | Real-time waypoint mission progress telemetry. |
 | `KMZ_INTERRUPTED` | `error_code: Int`, `description: String` | Triggered if the waypoint mission is interrupted by an error or user action. |
 | `LINK_LOSS_FAILSAFE` | `timestamp: Long` | Triggered when MQTT heartbeat is lost for >15s and failsafe RTH/Landing starts. |
+| `WAYPOINTS_UPDATED` | `waypoints: Array` | Real-time synchronization event containing the full active queue of waypoints with their names, coordinates, and config options. |
 
 **Example event payload:**
 ```json
 {
   "event": "KMZ_PUSH_FAILED",
   "error": "Storage full on drone"
+}
+```
+
+**Example waypoints update payload:**
+```json
+{
+  "event": "WAYPOINTS_UPDATED",
+  "waypoints": [
+    {
+      "name": "waypoint_1",
+      "lat": -6.205,
+      "lng": 106.816,
+      "alt": 50.0,
+      "speed": 5.0,
+      "movementMethod": "linear",
+      "actionType": "FLY"
+    },
+    {
+      "name": "waypoint_alpha",
+      "lat": -6.208,
+      "lng": 106.818,
+      "alt": 75.0,
+      "speed": 8.0,
+      "movementMethod": "orbit",
+      "actionType": "PHOTO",
+      "poiLat": -6.21,
+      "poiLng": 106.82
+    }
+  ]
 }
 ```
 
@@ -309,6 +350,8 @@ The drone parses the `command` key to determine the action to execute.
 | `SET_HOME` | — | — | Set the drone's current GPS position as the new Home Point. |
 | `ADD_WAYPOINT` | `lat`, `lon` | `alt`, `speed`, `heading`, `dwellTime`, `actionType`, `poiLat`, `poiLng`, `gimbalPitch`, `movementMethod` | Appends a single waypoint to the drone's active mission queue. Does not execute. |
 | `UPLOAD_MISSION` | `waypoints` (Array) | *(see Waypoint Dictionary)* | Replaces the entire mission queue with a new waypoint array. Does not execute. |
+| `RENAME_WAYPOINT` | `new_name` | `index` (Int), `name` (String) | Renames an existing waypoint matched by index or its current name. |
+| `UPDATE_WAYPOINT` | — | `index` (Int), `name` (String) + any parameters to update | Modifies flight parameters of a specific waypoint. |
 | `EXECUTE_MISSION` | — | — | Starts flying the loaded waypoint queue via Virtual Stick Engine. |
 | `CLEAR_MISSION` | — | — | Erases all waypoints from memory and clears the map. |
 | `PHOTO` | — | — | Triggers a single photograph. |
@@ -438,6 +481,30 @@ Sets the drone's virtual arm state to inactive instantly and updates the UI.
 { "command": "CLEAR_MISSION" }
 ```
 
+**Rename Waypoint**
+Renames a waypoint by its sequential list `index` (0-based) or by its current `name`.
+```json
+{
+  "command": "RENAME_WAYPOINT",
+  "name": "waypoint_2",
+  "new_name": "waypoint_observation_delta"
+}
+```
+
+**Update Waypoint**
+Modifies the parameters of an existing waypoint matched by `index` or `name`. Only fields present in the payload will be overwritten.
+```json
+{
+  "command": "UPDATE_WAYPOINT",
+  "index": 1,
+  "altitude": 80.0,
+  "speed": 7.5,
+  "actionType": "PHOTO",
+  "poiLat": -6.2052,
+  "poiLng": 106.8168
+}
+```
+
 **Capture Photo**
 ```json
 { "command": "PHOTO" }
@@ -548,6 +615,7 @@ Applies to both `ADD_WAYPOINT` (top-level keys) and each object in the `UPLOAD_M
 | :--- | :--- | :--- | :--- | :--- |
 | `lat` | Double | **YES** | — | Target latitude (WGS84). |
 | `lon` / `lng` | Double | **YES** | — | Target longitude (WGS84). Use `lon` for `ADD_WAYPOINT`, `lng` for `UPLOAD_MISSION` array items. |
+| `name` | String | No | `"waypoint_N"` | Custom name label for the waypoint. Sequentially auto-generated if omitted. |
 | `alt` | Double | No | `50.0` | Target altitude in meters relative to takeoff point. |
 | `speed` | Double | No | `10.0` for upload, `5.0` for add | Flight speed to this waypoint in m/s. |
 | `heading` | Double | No | — | Yaw angle (0–360) the drone faces while traveling to this waypoint. |

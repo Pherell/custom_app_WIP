@@ -156,8 +156,8 @@ function App() {
         
         mqttClient.on('connect', () => {
           console.log(`Connected to MQTT Broker: ${url}`);
-          mqttClient.subscribe('avarell/fleet/+/telemetry');
-          mqttClient.subscribe('avarell/fleet/+/mission');
+          mqttClient.subscribe('dji-sdk/fleet/+/telemetry');
+          mqttClient.subscribe('dji-sdk/fleet/+/mission');
           setBrokerStatuses(prev => ({ ...prev, [url]: true }));
         });
 
@@ -259,7 +259,7 @@ function App() {
           timestamp: Date.now(),
           ...extraPayload 
         };
-        clientsRef.current[broker].publish(`avarell/fleet/${droneId}/command`, JSON.stringify(payload), { qos: 1 });
+        clientsRef.current[broker].publish(`dji-sdk/fleet/${droneId}/command`, JSON.stringify(payload), { qos: 1 });
         alert(`Sent ${cmdType} to ${droneId}`);
       } else {
         alert(`Failed to send ${cmdType}. Drone is offline or broker disconnected.`);
@@ -275,7 +275,7 @@ function App() {
           command: 'UPLOAD_MISSION',
           waypoints: missionWaypoints
         };
-        clientsRef.current[broker].publish(`avarell/fleet/${selectedDrone}/command`, JSON.stringify(payload), { qos: 1 });
+        clientsRef.current[broker].publish(`dji-sdk/fleet/${selectedDrone}/command`, JSON.stringify(payload), { qos: 1 });
         alert(`Mission uploaded with ${missionWaypoints.length} waypoints via MQTT!`);
         setMissionWaypoints([]);
         setIsPlotting(false);

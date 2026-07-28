@@ -48,16 +48,17 @@ if (process.env.MQTT_USERNAME && process.env.MQTT_PASSWORD) {
 const mqttClient = mqtt.connect(process.env.MQTT_BROKER || 'mqtt://mqtt-broker:1883', mqttOptions);
 mqttClient.on('connect', () => {
   console.log('Backend connected to MQTT Broker for Data Persistence');
-  mqttClient.subscribe('avarell/fleet/+/telemetry');
+  mqttClient.subscribe('dji-sdk/fleet/+/telemetry');
+  mqttClient.subscribe('dji-sdk/fleet/config');
 });
 
 mqttClient.on('message', async (topic, message) => {
-  if (topic === 'avarell/fleet/config') {
+  if (topic === 'dji-sdk/fleet/config') {
     try {
       const configData = JSON.parse(message.toString());
       io.emit('config_update', configData);
     } catch (e) { /* ignore non-config messages */ }
-  } else if (topic.startsWith('avarell/fleet/') && topic.endsWith('/telemetry')) {
+  } else if (topic.startsWith('dji-sdk/fleet/') && topic.endsWith('/telemetry')) {
     try {
       const data = JSON.parse(message.toString());
       const droneId = data.drone_id;

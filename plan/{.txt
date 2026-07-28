@@ -1,0 +1,59 @@
+{
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": {
+        "AWS": [
+          "arn:aws:iam:::user/cyberforce"
+        ]
+      },
+      "Action": [
+        "s3:GetObject",
+        "s3:ListBucket",
+        "s3:PutObject",
+        "s3:DeleteObject"
+      ],
+      "Resource": [
+        "arn:aws:s3:::canvas-agents/*",
+        "arn:aws:s3:::canvas-agents"
+      ]
+    },
+    {
+      "Effect": "Allow",
+      "Principal": {
+        "AWS": [
+          "arn:aws:iam:::user/agent",
+          "arn:aws:iam:::user/daffaalbari",
+          "arn:aws:iam:::user/ariqdreikihajjanto",
+          "arn:aws:iam:::user/adryanardiansyah",
+          "arn:aws:iam:::user/airlanggapw",
+          "arn:aws:iam:::user/fahrialfiansyah",
+          "arn:aws:iam:::user/rifqiakmals",
+          "arn:aws:iam:::user/svc-fusion",
+          "arn:aws:iam:::user/indadewiyd"
+        ]
+      },
+      "Action": [
+        "s3:GetObject",
+        "s3:ListBucket",
+        "s3:PutObject"
+      ],
+      "Resource": [
+        "arn:aws:s3:::canvas-agents/*",
+        "arn:aws:s3:::canvas-agents"
+      ]
+    },
+    {
+      "Effect": "Allow",
+      "Principal": "*",
+      "Action": [
+        "s3:GetObject",
+        "s3:ListBucket"
+      ],
+      "Resource": [
+        "arn:aws:s3:::canvas-agents/*",
+        "arn:aws:s3:::canvas-agents"
+      ]
+    }
+  ]
+}

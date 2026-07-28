@@ -160,7 +160,7 @@ object KmzGenerator {
                 """
                   <wpml:waypointTurnParam>
                     <wpml:waypointTurnMode>coordinateTurn</wpml:waypointTurnMode>
-                    <wpml:waypointTurnDampingDist>${String.format("%.1f", dampingDist)}</wpml:waypointTurnDampingDist>
+                    <wpml:waypointTurnDampingDist>${String.format(java.util.Locale.US, "%.1f", dampingDist)}</wpml:waypointTurnDampingDist>
                   </wpml:waypointTurnParam>
                 """.trimIndent()
             } else {

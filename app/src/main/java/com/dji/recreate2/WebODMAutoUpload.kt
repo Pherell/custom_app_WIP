@@ -268,6 +268,8 @@ object WebODMAutoUpload {
             .post(authBody)
             .build()
             
+        val processedFiles = mutableListOf<File>()
+        var isUploadSuccessful = false
         try {
             val authRes = httpClient.newCall(authReq).execute()
             val authResStr = authRes.body?.string() ?: ""
@@ -326,7 +328,6 @@ object WebODMAutoUpload {
             multipartBuilder.addFormDataPart("name", projectName)
             
             // Process and add compressed files to prevent OOM
-            val processedFiles = mutableListOf<File>()
             for (img in images) {
                 val processed = compressImageIfNecessary(context, img)
                 processedFiles.add(processed)
@@ -373,6 +374,7 @@ object WebODMAutoUpload {
                             if (deleted) deletedCount++
                         }
                     }
+                    isUploadSuccessful = true
                     Log.d(TAG, "Auto-Cleanup: Deleted $deletedCount / ${images.size} cached images from phone storage.")
                     handler.post { android.widget.Toast.makeText(context, "WebODM Sync Sukses! $deletedCount file cache dihapus dari HP.", android.widget.Toast.LENGTH_LONG).show() }
                 } else {
@@ -390,6 +392,19 @@ object WebODMAutoUpload {
             Log.e(TAG, exMsg)
             handler.post { android.widget.Toast.makeText(context, "WebODM Sync Error: ${e.message}", android.widget.Toast.LENGTH_LONG).show() }
             statusListener?.invoke(exMsg, true)
+        } finally {
+            // Fix BUG: Delete temporary compressed files if upload was not successful
+            if (!isUploadSuccessful) {
+                for (i in images.indices) {
+                    if (i < processedFiles.size) {
+                        val orig = images[i]
+                        val proc = processedFiles[i]
+                        if (proc != orig && proc.exists()) {
+                            proc.delete()
+                        }
+                    }
+                }
+            }
         }
     }
 

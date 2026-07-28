@@ -41,7 +41,7 @@ The app communicates with an external MQTT broker. The server address can be con
 
 ### 1. Telemetry Broadcast
 The app publishes live data (approx 10Hz) to the server.
-*   **Topic:** `tactical/fleet/{drone_id}/telemetry`
+*   **Topic:** `dji-sdk/fleet/{drone_id}/telemetry`
 *   **Payload (JSON):**
 ```json
 {
@@ -61,7 +61,7 @@ The app publishes live data (approx 10Hz) to the server.
 
 ### 2. Command & Control (C2)
 The app listens for incoming commands from the server to alter its mission state.
-*   **Topic:** `tactical/fleet/{drone_id}/command`
+*   **Topic:** `dji-sdk/fleet/{drone_id}/command`
 *   **Payload (JSON):**
 
 **Add Waypoint:**
