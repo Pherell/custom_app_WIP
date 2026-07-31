@@ -51,26 +51,38 @@
 
 ---
 
-## 3. 🎯 Precision Landing Targets & AR HUD Visuals
+## 3. 🎯 Precision Landing Targets & Encoded QR Payloads
 
 ### A. Physical Target Marker Design
 ![High-Contrast AR Landing Pad Target](C:\Users\avare\.gemini\antigravity-ide\brain\2efbe6c7-fffe-4d5c-8a82-734fbfc9d1e5\landing_pad_ar_marker_1785215014206.png)
 
-### B. Precision Landing AR QR Code Fiducial
-![High-Contrast AR QR Code Landing Marker](C:\Users\avare\.gemini\antigravity-ide\brain\2efbe6c7-fffe-4d5c-8a82-734fbfc9d1e5\ar_landing_qr_code_1785220565571.png)
+### B. Precision Landing Encoded Data QR Code
+![QR Code Encoding Precision Landing Payload Data]  
 
-### C. AR Tracking Tag with 3D Projected Cube
-![AR QR Code Tag with 3D Wireframe Cube](C:\Users\avare\.gemini\antigravity-ide\brain\2efbe6c7-fffe-4d5c-8a82-734fbfc9d1e5\ar_qr_code_tag_1785226243774.png)
-
-### D. Live FPV AR HUD Overlay
+### C. Live FPV AR HUD Overlay
 ![Tactical FPV AR HUD Overlay](C:\Users\avare\.gemini\antigravity-ide\brain\2efbe6c7-fffe-4d5c-8a82-734fbfc9d1e5\ar_hud_landing_overlay_1785220283979.png)
 
-### Optical Vision Alignment Mechanics
-1. **Central Helipad 'H' & QR Fiducial**: High-contrast black and white matrix structure optimizes fast visual detection for computer vision libraries (OpenCV, AprilTag, ZXing).
-2. **Corner Orientation Markers**: Neon yellow corner indicators define 2D/3D axes $(X, Y, Z)$ and calculate aircraft heading alignment offset $\Delta \psi$.
-3. **3D AR Cube Projection**: Triggers real-time spatial matrix transformation $T_{camera}^{marker}$ to anchor a 3D AR bounding volume over the physical code tag.
-4. **AR HUD Reticle Projection ([ARLandingOverlayView.kt](file:///c:/Users/avare/Documents/recreate2/app/src/main/java/com/dji/recreate2/ARLandingOverlayView.kt))**: Projects a 3D bounding box, target crosshair, alignment status (`ALIGN: OK`), heading angle (`045°`), and real-time altitude (`ALT: 4.2m`) directly over the live FPV camera feed in the Android app.
-5. **Closed-Loop Vision Guidance ([ARVisionLandingManager.kt](file:///c:/Users/avare/Documents/recreate2/app/src/main/java/com/dji/recreate2/ARVisionLandingManager.kt))**: Drives horizontal pitch/roll velocity ($V_x, V_y$), yaw rate, and vertical descent speed ($V_z$) via Virtual Stick until sub-centimeter touchdown is achieved over pad center.
+### Data Schema Encoded Inside Landing QR Code
+```json
+{
+  "type": "PRECISION_LANDING_PAD",
+  "pad_id": "DOCK_ALPHA_01",
+  "location": {
+    "lat": -6.208800,
+    "lon": 106.845600,
+    "alt_msl": 15.2
+  },
+  "physical_specs": {
+    "width_m": 0.80,
+    "height_m": 0.80,
+    "heading_deg": 45.0
+  },
+  "approach_rules": {
+    "max_descent_mps": 0.5,
+    "safety_radius_m": 2.5
+  }
+}
+```
 
 ---
 
@@ -105,4 +117,4 @@
 
 ---
 
-*Last Updated: 2026-07-28*
+*Last Updated: 2026-07-31*
