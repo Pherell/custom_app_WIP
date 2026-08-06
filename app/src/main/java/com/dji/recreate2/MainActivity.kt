@@ -1304,14 +1304,14 @@ class MainActivity : AppCompatActivity() {
         findViewById<TextView>(R.id.btnResetZoom)?.setOnClickListener { resetZoom() }
         findViewById<TextView>(R.id.btnDeleteSelection)?.setOnClickListener {
             objectTrackingOverlay?.unlockTarget()
-            showToast("🎯 Target Selection Cleared (DEL)")
+            showToast("LOCK: SELECTION CLEARED (DEL)")
         }
         findViewById<TextView>(R.id.btnFollowObject)?.setOnClickListener {
             if (isObjectTrackingActive) {
-                showToast("🎯 Object Following Active (FOL)")
+                showToast("LOCK: OBJECT FOLLOW ACTIVE (FOL)")
             } else {
                 objectTrackingOverlay?.lockTargetNormalized(0.5f, 0.5f, 0.2f, 0.2f)
-                showToast("🎯 Object Follow Activated on Center Target (FOL)")
+                showToast("LOCK: OBJECT FOLLOW ACTIVATED (FOL)")
             }
         }
         findViewById<TextView>(R.id.btnToggleJoysticks).setOnClickListener { toggleJoysticks() }
@@ -4524,7 +4524,7 @@ class MainActivity : AppCompatActivity() {
     private fun startOpticalObjectTracking(normX: Float, normY: Float, normW: Float, normH: Float) {
         isObjectTrackingActive = true
         log("Started Optical Object Tracking on Target Box: center=($normX, $normY), size=($normW x $normH)")
-        showToast("🎯 OPTICAL TARGET LOCKED: Gimbal & Flight Follow Active")
+        showToast("LOCK: OBJECT / HUMAN ACTIVE")
 
         trackingLoopThread?.interrupt()
         trackingLoopThread = Thread {
@@ -4547,10 +4547,6 @@ class MainActivity : AppCompatActivity() {
                         )
                     }
 
-                    lastTargetNormX += (0.5f - lastTargetNormX) * 0.15f
-                    lastTargetNormY += (0.5f - lastTargetNormY) * 0.15f
-                    objectTrackingOverlay?.updateTargetPosition(lastTargetNormX, lastTargetNormY)
-
                     Thread.sleep(50)
                 }
             } catch (e: InterruptedException) {
@@ -4569,7 +4565,7 @@ class MainActivity : AppCompatActivity() {
         KeyManager.getInstance().performAction(gimbalSpeedKey, GimbalSpeedRotation(0.0, 0.0, 0.0, CtrlInfo()), null)
 
         log("Stopped Optical Object Tracking.")
-        showToast("🎯 TARGET UNLOCKED")
+        showToast("LOCK: OBJECT UNLOCKED")
     }
 
     private var isDistanceLimitEnabled = false

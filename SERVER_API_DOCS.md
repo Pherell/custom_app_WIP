@@ -1,5 +1,9 @@
 # Tactical Drone C2 Server Specification
 
+> **Changelog — 2026-08-06 (Real Optical Object Tracking & LOCK: OBJECT / HUMAN Label Formatting)**
+> - **Real Optical Bounding Box Coordinates:** Removed artificial drift/centering logic; target bounding box stays locked to exact real optical touch/drag or AI bounding box coordinates (`x_min, y_min, x_max, y_max`).
+> - **Clean Label Formatting & Smaller Font Size:** Updated on-screen bounding box label to `LOCK: OBJECT / HUMAN` using a crisp `20sp` font size without emoji indicators.
+>
 > **Changelog — 2026-08-06 (DEL & FOL Tactical HUD Buttons for Object Selection & Follow)**
 > - **Tactical HUD Controls (`DEL` & `FOL`):** Added circular HUD quick-action buttons below **RES** (Reset Zoom) on the main FPV layout:
 >   - **`DEL` (Delete Selection / Unlock):** Clears active target bounding box overlay and releases optical tracking.

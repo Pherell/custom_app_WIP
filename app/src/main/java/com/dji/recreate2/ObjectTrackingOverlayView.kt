@@ -39,7 +39,7 @@ class ObjectTrackingOverlayView @JvmOverloads constructor(
 
     private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.parseColor("#00FF66")
-        textSize = 34f
+        textSize = 20f
         isFakeBoldText = true
         setShadowLayer(4f, 0f, 0f, Color.BLACK)
     }
@@ -219,8 +219,8 @@ class ObjectTrackingOverlayView @JvmOverloads constructor(
             canvas.drawLine(r.right, r.bottom - cornerLen, r.right, r.bottom, cornerPaint)
 
             // Tactical Label Overlay
-            val text = "🎯 LOCK: OBJECT / HUMAN [ACTIVE]"
-            canvas.drawText(text, r.left, Math.max(35f, r.top - 12f), textPaint)
+            val text = "LOCK: OBJECT / HUMAN"
+            canvas.drawText(text, r.left, Math.max(25f, r.top - 8f), textPaint)
         }
     }
 }
