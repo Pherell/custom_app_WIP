@@ -3962,6 +3962,7 @@ class MainActivity : AppCompatActivity() {
         KeyManager.getInstance().listen(batteryKey, this) { _, newValue: Int? ->
             newValue?.let { 
                 droneBattery = it
+                updateSituationLighting()
                 runOnUiThread { 
                     tvBattery.text = String.format("%02d%%", it) 
                     
@@ -4484,6 +4485,90 @@ class MainActivity : AppCompatActivity() {
     }
 
     private var isStealthModeEnabled = false
+    private var isBellyLampOn = false
+    private var currentLightingSituation = "NORMAL"
+    private var blinkingThread: Thread? = null
+
+    private fun setBellyLamp(on: Boolean) {
+        isBellyLampOn = on
+        log("Setting Belly Lamp / Bottom Auxiliary Light: $on")
+
+        val ledKey = KeyTools.createKey(FlightControllerKey.KeyLEDsSettings)
+        val ledSettings = if (isStealthModeEnabled) {
+            dji.sdk.keyvalue.value.flightcontroller.LEDsSettings(false, false, false, false)
+        } else {
+            dji.sdk.keyvalue.value.flightcontroller.LEDsSettings(true, true, true, on)
+        }
+        KeyManager.getInstance().setValue(ledKey, ledSettings, null)
+
+        runOnUiThread {
+            showToast(if (on) "💡 Belly Landing Lamp: TURNED ON" else "💡 Belly Landing Lamp: TURNED OFF")
+        }
+    }
+
+    private fun updateSituationLighting() {
+        if (isStealthModeEnabled) return
+
+        val newSituation = when {
+            droneBattery in 1..24 -> "LOW_BATTERY_WARNING"
+            droneFlightMode.contains("LAND", ignoreCase = true) || droneFlightMode.contains("TAKEOFF", ignoreCase = true) -> "TAKEOFF_LANDING"
+            isMissionExecuting -> "MISSION_EXECUTING"
+            else -> "NORMAL"
+        }
+
+        if (newSituation == currentLightingSituation) return
+        currentLightingSituation = newSituation
+        log("Tactical Situation Lighting changed to: $newSituation")
+
+        blinkingThread?.interrupt()
+        blinkingThread = null
+
+        when (newSituation) {
+            "LOW_BATTERY_WARNING" -> {
+                blinkingThread = Thread {
+                    try {
+                        val key = KeyTools.createKey(FlightControllerKey.KeyLEDsSettings)
+                        val offSettings = dji.sdk.keyvalue.value.flightcontroller.LEDsSettings(false, false, false, false)
+                        val warnSettings = dji.sdk.keyvalue.value.flightcontroller.LEDsSettings(true, true, true, isBellyLampOn)
+
+                        while (!Thread.currentThread().isInterrupted && currentLightingSituation == "LOW_BATTERY_WARNING") {
+                            KeyManager.getInstance().setValue(key, offSettings, null)
+                            Thread.sleep(350)
+                            if (Thread.currentThread().isInterrupted) break
+                            KeyManager.getInstance().setValue(key, warnSettings, null)
+                            Thread.sleep(350)
+                        }
+                    } catch (e: InterruptedException) {
+                        // Thread interrupted
+                    }
+                }.apply { start() }
+            }
+            "TAKEOFF_LANDING" -> {
+                blinkingThread = Thread {
+                    try {
+                        val key = KeyTools.createKey(FlightControllerKey.KeyLEDsSettings)
+                        val offSettings = dji.sdk.keyvalue.value.flightcontroller.LEDsSettings(false, false, true, false)
+                        val flashSettings = dji.sdk.keyvalue.value.flightcontroller.LEDsSettings(true, true, true, true)
+
+                        while (!Thread.currentThread().isInterrupted && currentLightingSituation == "TAKEOFF_LANDING") {
+                            KeyManager.getInstance().setValue(key, offSettings, null)
+                            Thread.sleep(500)
+                            if (Thread.currentThread().isInterrupted) break
+                            KeyManager.getInstance().setValue(key, flashSettings, null)
+                            Thread.sleep(500)
+                        }
+                    } catch (e: InterruptedException) {
+                        // Thread interrupted
+                    }
+                }.apply { start() }
+            }
+            "NORMAL" -> {
+                val key = KeyTools.createKey(FlightControllerKey.KeyLEDsSettings)
+                val normalSettings = dji.sdk.keyvalue.value.flightcontroller.LEDsSettings(true, true, true, isBellyLampOn)
+                KeyManager.getInstance().setValue(key, normalSettings, null)
+            }
+        }
+    }
 
     private fun toggleStealthMode(enable: Boolean? = null) {
         val newState = enable ?: !isStealthModeEnabled
@@ -4491,12 +4576,17 @@ class MainActivity : AppCompatActivity() {
 
         log("Setting Stealth Mode: $newState")
 
+        if (newState) {
+            blinkingThread?.interrupt()
+            blinkingThread = null
+        }
+
         // 1. Front LEDs, Rear LEDs, Status Indicators, and Navigation Lights -> OFF in Stealth, ON in Normal
         val ledKey = KeyTools.createKey(FlightControllerKey.KeyLEDsSettings)
         val ledSettings = if (newState) {
             dji.sdk.keyvalue.value.flightcontroller.LEDsSettings(false, false, false, false)
         } else {
-            dji.sdk.keyvalue.value.flightcontroller.LEDsSettings(true, true, true, true)
+            dji.sdk.keyvalue.value.flightcontroller.LEDsSettings(true, true, true, isBellyLampOn)
         }
         KeyManager.getInstance().setValue(ledKey, ledSettings, object : CommonCallbacks.CompletionCallback {
             override fun onSuccess() { log("Stealth Mode LEDsSettings set to $ledSettings") }
@@ -5274,14 +5364,22 @@ class MainActivity : AppCompatActivity() {
             btnConfinedSpaceMode?.setTextColor(if (enabled) android.graphics.Color.parseColor("#00FF66") else android.graphics.Color.WHITE)
         }
 
+        val btnBellyLamp = dialog.findViewById<android.widget.Button>(R.id.btnBellyLamp)
+
         fun updateStealthUi() {
             btnStealthMode?.text = if (isStealthModeEnabled) "🥷 STEALTH MODE: ENABLED (LEDS OFF)" else "STEALTH MODE (BELLY LAMP & LEDS): OFF"
             btnStealthMode?.setTextColor(if (isStealthModeEnabled) android.graphics.Color.parseColor("#00FF66") else android.graphics.Color.WHITE)
         }
 
+        fun updateBellyLampUi() {
+            btnBellyLamp?.text = if (isBellyLampOn) "💡 BELLY LANDING LAMP: ON" else "💡 BELLY LANDING LAMP: OFF"
+            btnBellyLamp?.setTextColor(if (isBellyLampOn) android.graphics.Color.parseColor("#00FF66") else android.graphics.Color.WHITE)
+        }
+
         updateGpsDeniedUi()
         updateConfinedSpaceUi()
         updateStealthUi()
+        updateBellyLampUi()
 
         btnGpsDeniedMode?.setOnClickListener {
             val next = !com.dji.recreate2.flight.ConfinedSpaceFlightManager.isGpsDeniedModeEnabled
@@ -5300,6 +5398,12 @@ class MainActivity : AppCompatActivity() {
         btnStealthMode?.setOnClickListener {
             toggleStealthMode()
             updateStealthUi()
+            updateBellyLampUi()
+        }
+
+        btnBellyLamp?.setOnClickListener {
+            setBellyLamp(!isBellyLampOn)
+            updateBellyLampUi()
         }
         
         btnConnectServer?.setOnClickListener {
@@ -6211,6 +6315,16 @@ class MainActivity : AppCompatActivity() {
                                 publishCommandReceipt(transactionId, command, "FAILED", errorMessage = "[${error.errorCode()}] ${error.description()}")
                             }
                         })
+                    }
+                    "SET_BELLY_LAMP", "BELLY_LAMP_ON", "BELLY_LAMP_OFF", "LANDING_LAMP" -> {
+                        publishCommandReceipt(transactionId, command, "EXECUTING")
+                        val on = when (command) {
+                            "BELLY_LAMP_ON" -> true
+                            "BELLY_LAMP_OFF" -> false
+                            else -> json.optBoolean("on", json.optBoolean("enabled", !isBellyLampOn))
+                        }
+                        setBellyLamp(on)
+                        publishCommandReceipt(transactionId, command, "COMPLETED")
                     }
                     "GIMBAL_SPEED" -> {
                         publishCommandReceipt(transactionId, command, "EXECUTING")

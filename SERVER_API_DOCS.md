@@ -1,5 +1,13 @@
 # Tactical Drone C2 Server Specification
 
+> **Changelog — 2026-08-06 (Belly Landing Lamp & Situational LED Blinking Engine)**
+> - **Bottom Auxiliary / Belly Lamp Control (`setBellyLamp`):** Added explicit toggle control for the bottom landing lamp below the drone (`dji.sdk.keyvalue.value.flightcontroller.LEDsSettings`). Controlled via System Dialog button (`btnBellyLamp`) and MQTT commands (`SET_BELLY_LAMP`, `BELLY_LAMP_ON`, `BELLY_LAMP_OFF`).
+> - **Situational LED Blinking Engine (`updateSituationLighting`):** Automatically switches drone LED lighting states based on flight conditions:
+>   - **Emergency / Low Battery (< 25%):** Rapid warning flash (0.35s toggle interval).
+>   - **Takeoff / Landing:** Caution flash (0.50s toggle interval) to alert ground personnel.
+>   - **Stealth Mode Active:** All LEDs and lamps completely OFF.
+>   - **Normal Flight:** Solid LEDs ON with user belly lamp preference.
+>
 > **Changelog — 2026-08-06 (Media File Pull Fix & Fallback Pipeline)**
 > - **Resolved `get media files failed` Error:** Fixed MSDK V5 `pullMediaFileListFromCamera` failure by setting `count(-1)` parameter in `PullMediaFileListParam.Builder()`.
 > - **Automatic Parameter Fallback Retry Pipeline:** If the primary full file list query fails, automatically retries with a default parameter builder (`PullMediaFileListParam.Builder().build()`) to guarantee media list extraction across all DJI Enterprise drone storage types (SD Card & Internal Storage).

@@ -507,6 +507,16 @@
                     android:layout_marginBottom="8dp" />
 
                 <Button
+                    android:id="@+id/btnBellyLamp"
+                    android:layout_width="match_parent"
+                    android:layout_height="40dp"
+                    android:text="💡 BELLY LANDING LAMP: OFF"
+                    android:textColor="#FFFFFF"
+                    android:textSize="12sp"
+                    android:background="@drawable/bg_glass_btn"
+                    android:layout_marginBottom="8dp" />
+
+                <Button
                     android:id="@+id/btnWebOdmConfig"
                     android:layout_width="match_parent"
                     android:layout_height="40dp"
