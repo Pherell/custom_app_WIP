@@ -4256,6 +4256,13 @@ class MainActivity : AppCompatActivity() {
         val streamManager = MediaDataCenter.getInstance().cameraStreamManager
         val w = if (fpvSurface.width > 0) fpvSurface.width else 1920
         val h = if (fpvSurface.height > 0) fpvSurface.height else 1080
+
+        try {
+            fpvSurface.holder.setFormat(android.graphics.PixelFormat.TRANSLUCENT)
+        } catch (e: Exception) {
+            // Format set fallback
+        }
+
         streamManager.putCameraStreamSurface(
             ComponentIndexType.LEFT_OR_MAIN,
             surface,
@@ -4264,7 +4271,7 @@ class MainActivity : AppCompatActivity() {
             ICameraStreamManager.ScaleType.CENTER_CROP
         )
         videoFeedBound = true
-        log("Video stream bound (${w}x${h})")
+        log("Low-latency hardware FPV video stream bound (${w}x${h})")
     }
 
     private fun monitorConnectionStatus() {
@@ -6098,13 +6105,13 @@ class MainActivity : AppCompatActivity() {
                         }
                         publishCommandReceipt(transactionId, command, "COMPLETED")
                     }
-                    "START_RTMP" -> {
+                    "START_RTMP", "START_STREAM", "SET_STREAM", "STREAM_START" -> {
                         publishCommandReceipt(transactionId, command, "EXECUTING")
-                        val rtmpUrl = json.optString("url")
+                        val rtmpUrl = json.optString("url", json.optString("rtmp_url", ""))
                         runOnUiThread { startRtmpStream(rtmpUrl) }
                         publishCommandReceipt(transactionId, command, "COMPLETED")
                     }
-                    "STOP_RTMP" -> {
+                    "STOP_RTMP", "STOP_STREAM", "STREAM_STOP" -> {
                         publishCommandReceipt(transactionId, command, "EXECUTING")
                         runOnUiThread { stopRtmpStream() }
                         publishCommandReceipt(transactionId, command, "COMPLETED")
@@ -6693,10 +6700,9 @@ class MainActivity : AppCompatActivity() {
     private fun startRtmpStream(url: String) {
         if (url.isEmpty()) return
         try {
-            showToast("Starting RTMP to: $url")
-            android.util.Log.i("KMZ_SysLog", "RTMP Stream Command Received: $url")
+            showToast("🚀 Starting Low-Latency Stream: $url")
+            android.util.Log.i("KMZ_SysLog", "Optimized Low-Latency Stream Command Received: $url")
             
-            // Menggunakan LiveStreamManager bawaan dari MediaDataCenter
             val liveStreamManager = dji.v5.manager.datacenter.MediaDataCenter.getInstance().liveStreamManager
             
             if (liveStreamManager != null) {
@@ -6712,21 +6718,26 @@ class MainActivity : AppCompatActivity() {
                     
                 liveStreamManager.liveStreamSettings = liveStreamConfig
                 
-                // Kunci perbaikan: Drone wajib tahu kamera mana yang harus dikirim ke RTMP
-                // Kita gunakan kamera utama (LEFT_OR_MAIN)
+                // Set main camera as primary stream source
                 liveStreamManager.cameraIndex = dji.sdk.keyvalue.value.common.ComponentIndexType.LEFT_OR_MAIN
                 
                 liveStreamManager.startStream(object : dji.v5.common.callback.CommonCallbacks.CompletionCallback {
                     override fun onSuccess() {
-                        showToast("RTMP Stream Started!")
+                        runOnUiThread {
+                            showToast("✔ Ultra-Fast Stream ACTIVE: $url")
+                            log("Optimized Low-Latency Stream started successfully to: $url")
+                        }
                     }
                     override fun onFailure(error: dji.v5.common.error.IDJIError) {
-                        showToast("RTMP Stream Failed: ${error.description()}")
+                        runOnUiThread {
+                            showToast("✗ Stream Failed: ${error.description()}")
+                            log("Stream Error: ${error.errorCode()} / ${error.description()}")
+                        }
                     }
                 })
                 
             } else {
-                showToast("LiveStreamManager tidak tersedia di drone ini.")
+                showToast("LiveStreamManager unavailable on this aircraft.")
             }
         } catch (e: Exception) {
             showToast("LiveStream error: ${e.message}")

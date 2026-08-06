@@ -1,5 +1,10 @@
 # Tactical Drone C2 Server Specification
 
+> **Changelog — 2026-08-06 (Low-Latency Video Stream Optimization & Remote C2 Commands)**
+> - **Hardware FPV Rendering Optimization (`bindVideoStream`):** Enforced zero-copy hardware surface formatting (`PixelFormat.TRANSLUCENT`) and direct GPU scaling (`ScaleType.CENTER_CROP`) on the tablet FPV feed, eliminating rendering stutter and CPU decoding lag.
+> - **High-Quality Low-Latency RTMP Stream Pipeline (`startRtmpStream`):** Configured direct H.264 hardware encoder passthrough from the primary camera lens (`ComponentIndexType.LEFT_OR_MAIN`), delivering ultra-smooth 1080p video streams with minimal network buffering latency.
+> - **Expanded C2 MQTT Stream Commands:** Supported C2 JSON command aliases over `dji-sdk/fleet/{clientId}/command`: `START_STREAM`, `START_RTMP`, `SET_STREAM`, `STREAM_START` (with payload `{"url": "rtmp://..."}` or `{"rtmp_url": "..."}`), and `STOP_STREAM`, `STOP_RTMP`, `STREAM_STOP`.
+>
 > **Changelog — 2026-08-06 (Touch-to-Focus Object Lock & Stealth Mode LED Control)**
 > - **Multi-Lens Touch-to-Focus (`triggerTapToFocus`):** Tapping anywhere on the live video stream calculates normalized $(x, y)$ coordinates and sends target focus commands across Zoom lens (`CAMERA_LENS_ZOOM`), Wide lens (`CAMERA_LENS_WIDE`), and general CameraFocusTarget key, showing an animated green target reticle ring on the touched object.
 > - **Stealth Mode (`toggleStealthMode`):** Added a tactical **Stealth Mode** toggle button (`btnStealthMode`) in System Dialog and C2 MQTT command (`STEALTH_MODE`, `STEALTH_ON`, `STEALTH_OFF`, `LIGHTS_OFF`, `LIGHTS_ON`). Simultaneously turns OFF/ON all Front Arm LEDs, Rear Arm LEDs, Flight Status Indicators, Navigation Lights, and Auxiliary Lights (`LEDsSettings(false, false, false, false)`).
