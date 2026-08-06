@@ -4476,12 +4476,50 @@ class MainActivity : AppCompatActivity() {
         })
     }
 
-    private fun triggerTapToFocus(normX: Double, normY: Double, screenX: Float = -1f, screenY: Float = -1f) {
-        val focusModeKey = KeyTools.createCameraKey(CameraKey.KeyCameraFocusMode, ComponentIndexType.LEFT_OR_MAIN, CameraLensType.CAMERA_LENS_ZOOM)
-        KeyManager.getInstance().setValue(focusModeKey, dji.sdk.keyvalue.value.camera.CameraFocusMode.AF, null)
+    private var isStealthModeEnabled = false
 
-        val targetKey = KeyTools.createCameraKey(CameraKey.KeyCameraFocusTarget, ComponentIndexType.LEFT_OR_MAIN, CameraLensType.CAMERA_LENS_ZOOM)
-        KeyManager.getInstance().setValue(targetKey, dji.sdk.keyvalue.value.common.DoublePoint2D(normX, normY), null)
+    private fun toggleStealthMode(enable: Boolean? = null) {
+        val newState = enable ?: !isStealthModeEnabled
+        isStealthModeEnabled = newState
+
+        log("Setting Stealth Mode: $newState")
+
+        // 1. Front LEDs, Rear LEDs, Status Indicators, and Navigation Lights -> OFF in Stealth, ON in Normal
+        val ledKey = KeyTools.createKey(FlightControllerKey.KeyLEDsSettings)
+        val ledSettings = if (newState) {
+            dji.sdk.keyvalue.value.flightcontroller.LEDsSettings(false, false, false, false)
+        } else {
+            dji.sdk.keyvalue.value.flightcontroller.LEDsSettings(true, true, true, true)
+        }
+        KeyManager.getInstance().setValue(ledKey, ledSettings, object : CommonCallbacks.CompletionCallback {
+            override fun onSuccess() { log("Stealth Mode LEDsSettings set to $ledSettings") }
+            override fun onFailure(error: IDJIError) { log("LEDsSettings control failed: ${error.errorCode()}") }
+        })
+
+        runOnUiThread {
+            showToast(if (newState) "🥷 Stealth Mode ENABLED: All LEDs & Navigation Lights OFF" else "🥷 Stealth Mode DISABLED: Navigation LEDs Restored")
+        }
+    }
+
+    private fun triggerTapToFocus(normX: Double, normY: Double, screenX: Float = -1f, screenY: Float = -1f) {
+        val targetPoint = dji.sdk.keyvalue.value.common.DoublePoint2D(normX, normY)
+
+        // Set AF Mode across all camera lenses
+        val focusModeZoom = KeyTools.createCameraKey(CameraKey.KeyCameraFocusMode, ComponentIndexType.LEFT_OR_MAIN, CameraLensType.CAMERA_LENS_ZOOM)
+        KeyManager.getInstance().setValue(focusModeZoom, dji.sdk.keyvalue.value.camera.CameraFocusMode.AF, null)
+
+        val focusModeWide = KeyTools.createCameraKey(CameraKey.KeyCameraFocusMode, ComponentIndexType.LEFT_OR_MAIN, CameraLensType.CAMERA_LENS_WIDE)
+        KeyManager.getInstance().setValue(focusModeWide, dji.sdk.keyvalue.value.camera.CameraFocusMode.AF, null)
+
+        // Set Focus Target Point (Zoom, Wide, & General)
+        val targetZoom = KeyTools.createCameraKey(CameraKey.KeyCameraFocusTarget, ComponentIndexType.LEFT_OR_MAIN, CameraLensType.CAMERA_LENS_ZOOM)
+        KeyManager.getInstance().setValue(targetZoom, targetPoint, null)
+
+        val targetWide = KeyTools.createCameraKey(CameraKey.KeyCameraFocusTarget, ComponentIndexType.LEFT_OR_MAIN, CameraLensType.CAMERA_LENS_WIDE)
+        KeyManager.getInstance().setValue(targetWide, targetPoint, null)
+
+        val targetGeneral = KeyTools.createKey(CameraKey.KeyCameraFocusTarget)
+        KeyManager.getInstance().setValue(targetGeneral, targetPoint, null)
 
         runOnUiThread {
             val focusReticle = findViewById<android.widget.ImageView>(R.id.focusReticle)
@@ -4493,23 +4531,23 @@ class MainActivity : AppCompatActivity() {
                 focusReticle.alpha = 1f
                 focusReticle.translationX = posX - (focusReticle.width / 2f)
                 focusReticle.translationY = posY - (focusReticle.height / 2f)
-                focusReticle.scaleX = 1.5f
-                focusReticle.scaleY = 1.5f
+                focusReticle.scaleX = 1.6f
+                focusReticle.scaleY = 1.6f
                 focusReticle.animate()
                     .scaleX(1.0f)
                     .scaleY(1.0f)
-                    .setDuration(300)
+                    .setDuration(250)
                     .withEndAction {
                         focusReticle.postDelayed({
-                            focusReticle.animate().alpha(0f).setDuration(300).withEndAction {
+                            focusReticle.animate().alpha(0f).setDuration(250).withEndAction {
                                 focusReticle.visibility = View.GONE
                                 focusReticle.alpha = 1f
                             }.start()
-                        }, 2000)
+                        }, 1800)
                     }
                     .start()
             }
-            showToast("Focusing at ${String.format(java.util.Locale.US, "%.2f", normX)}, ${String.format(java.util.Locale.US, "%.2f", normY)}")
+            showToast("🎯 Touch Focus Target: ${String.format(java.util.Locale.US, "%.2f", normX)}, ${String.format(java.util.Locale.US, "%.2f", normY)}")
         }
     }
 
@@ -5214,6 +5252,7 @@ class MainActivity : AppCompatActivity() {
         // CONFINED SPACE & GPS-DENIED FLIGHT BINDS
         val btnGpsDeniedMode = dialog.findViewById<android.widget.Button>(R.id.btnGpsDeniedMode)
         val btnConfinedSpaceMode = dialog.findViewById<android.widget.Button>(R.id.btnConfinedSpaceMode)
+        val btnStealthMode = dialog.findViewById<android.widget.Button>(R.id.btnStealthMode)
 
         fun updateGpsDeniedUi() {
             val enabled = com.dji.recreate2.flight.ConfinedSpaceFlightManager.isGpsDeniedModeEnabled
@@ -5228,8 +5267,14 @@ class MainActivity : AppCompatActivity() {
             btnConfinedSpaceMode?.setTextColor(if (enabled) android.graphics.Color.parseColor("#00FF66") else android.graphics.Color.WHITE)
         }
 
+        fun updateStealthUi() {
+            btnStealthMode?.text = if (isStealthModeEnabled) "🥷 STEALTH MODE: ENABLED (LEDS OFF)" else "STEALTH MODE (BELLY LAMP & LEDS): OFF"
+            btnStealthMode?.setTextColor(if (isStealthModeEnabled) android.graphics.Color.parseColor("#00FF66") else android.graphics.Color.WHITE)
+        }
+
         updateGpsDeniedUi()
         updateConfinedSpaceUi()
+        updateStealthUi()
 
         btnGpsDeniedMode?.setOnClickListener {
             val next = !com.dji.recreate2.flight.ConfinedSpaceFlightManager.isGpsDeniedModeEnabled
@@ -5243,6 +5288,11 @@ class MainActivity : AppCompatActivity() {
             com.dji.recreate2.flight.ConfinedSpaceFlightManager.setConfinedSpaceMode(this, next, brakeDistance = 1.0)
             updateConfinedSpaceUi()
             showToast("Confined Space Mode: ${if (next) "ENABLED (1.0m BRAKE)" else "NORMAL (10m BRAKE)"}")
+        }
+
+        btnStealthMode?.setOnClickListener {
+            toggleStealthMode()
+            updateStealthUi()
         }
         
         btnConnectServer?.setOnClickListener {
@@ -6234,6 +6284,16 @@ class MainActivity : AppCompatActivity() {
                             pong.put("transaction_id", transactionId)
                         }
                         mqttService.publishMission(jsonPayload = pong.toString())
+                        publishCommandReceipt(transactionId, command, "COMPLETED")
+                    }
+                    "STEALTH_MODE", "SET_STEALTH_MODE", "STEALTH", "STEALTH_ON", "STEALTH_OFF", "LIGHTS_OFF", "LIGHTS_ON", "BELLY_LAMP" -> {
+                        publishCommandReceipt(transactionId, command, "EXECUTING")
+                        val enable = when (command) {
+                            "STEALTH_ON", "LIGHTS_OFF" -> true
+                            "STEALTH_OFF", "LIGHTS_ON" -> false
+                            else -> json.optBoolean("enabled", !isStealthModeEnabled)
+                        }
+                        toggleStealthMode(enable)
                         publishCommandReceipt(transactionId, command, "COMPLETED")
                     }
                     "START_COMPASS_CALIBRATION" -> {

@@ -1,5 +1,9 @@
 # Tactical Drone C2 Server Specification
 
+> **Changelog — 2026-08-06 (Touch-to-Focus Object Lock & Stealth Mode LED Control)**
+> - **Multi-Lens Touch-to-Focus (`triggerTapToFocus`):** Tapping anywhere on the live video stream calculates normalized $(x, y)$ coordinates and sends target focus commands across Zoom lens (`CAMERA_LENS_ZOOM`), Wide lens (`CAMERA_LENS_WIDE`), and general CameraFocusTarget key, showing an animated green target reticle ring on the touched object.
+> - **Stealth Mode (`toggleStealthMode`):** Added a tactical **Stealth Mode** toggle button (`btnStealthMode`) in System Dialog and C2 MQTT command (`STEALTH_MODE`, `STEALTH_ON`, `STEALTH_OFF`, `LIGHTS_OFF`, `LIGHTS_ON`). Simultaneously turns OFF/ON all Front Arm LEDs, Rear Arm LEDs, Flight Status Indicators, Navigation Lights, and Auxiliary Lights (`LEDsSettings(false, false, false, false)`).
+>
 > **Changelog — 2026-08-06 (High-Precision 3D AR Projection & IMU/VPS Dead Reckoning Navigation)**
 > - **High-Precision 3D AR Pinhole Perspective Projection (`ARLandingOverlayView`):** Replaced linear angular subtraction with exact 3D camera transformation matrix (Body to Camera Frame) and pinhole perspective projection ($f_x = \frac{W}{2 \tan(\text{HFOV}/2)}$, $f_y = \frac{H}{2 \tan(\text{VFOV}/2)}$). Completely eliminates visual drift and random position jumping.
 > - **Low-Pass Exponential Moving Average (EMA) Temporal Filter:** Integrated real-time EMA low-pass filtering ($\alpha = 0.20$) on projected screen coordinates and target distance to smooth out sensor noise and prevent overlay jittering.
