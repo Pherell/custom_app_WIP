@@ -1314,6 +1314,9 @@ class MainActivity : AppCompatActivity() {
                 showToast("LOCK: OBJECT FOLLOW ACTIVATED (FOL)")
             }
         }
+        findViewById<TextView>(R.id.btnTgpLock)?.setOnClickListener {
+            toggleTargetingPodLock()
+        }
         findViewById<TextView>(R.id.btnToggleJoysticks).setOnClickListener { toggleJoysticks() }
         findViewById<TextView>(R.id.btnSystem).setOnClickListener { showSystemDialog() }
 
@@ -4568,6 +4571,87 @@ class MainActivity : AppCompatActivity() {
         showToast("LOCK: OBJECT UNLOCKED")
     }
 
+    private var isTgpGeoLockActive = false
+    private var tgpTargetLat = 0.0
+    private var tgpTargetLon = 0.0
+    private var tgpTargetAlt = 0.0
+    private var tgpLockThread: Thread? = null
+
+    private fun toggleTargetingPodLock(targetLat: Double? = null, targetLon: Double? = null, targetAlt: Double? = null) {
+        if (isTgpGeoLockActive && targetLat == null) {
+            isTgpGeoLockActive = false
+            tgpLockThread?.interrupt()
+            tgpLockThread = null
+            log("Targeting Pod Geo-Lock UNLOCKED")
+            showToast("TGP GEO-LOCK: UNLOCKED")
+            runOnUiThread {
+                findViewById<TextView>(R.id.btnTgpLock)?.setTextColor(android.graphics.Color.YELLOW)
+            }
+            return
+        }
+
+        val dLat = if (targetLat != null && targetLat != 0.0) targetLat else droneLat
+        val dLon = if (targetLon != null && targetLon != 0.0) targetLon else droneLon
+        val dAlt = if (targetAlt != null && targetAlt > 0.0) targetAlt else (droneAlt - 15.0).coerceAtLeast(0.0)
+
+        if (dLat == 0.0 && dLon == 0.0) {
+            showToast("⚠️ TGP Lock Error: Waiting for Drone GPS fix...")
+            return
+        }
+
+        tgpTargetLat = dLat
+        tgpTargetLon = dLon
+        tgpTargetAlt = dAlt
+        isTgpGeoLockActive = true
+
+        log("Targeting Pod Geo-Lock ENGAGED on Ground Coordinate: ($tgpTargetLat, $tgpTargetLon, Alt: ${tgpTargetAlt}m)")
+        showToast("TGP GEO-LOCK: ENGAGED [${String.format("%.5f", tgpTargetLat)}, ${String.format("%.5f", tgpTargetLon)}]")
+
+        runOnUiThread {
+            findViewById<TextView>(R.id.btnTgpLock)?.setTextColor(android.graphics.Color.parseColor("#00FF66"))
+        }
+
+        tgpLockThread?.interrupt()
+        tgpLockThread = Thread {
+            try {
+                val gimbalAngleKey = KeyTools.createKey(GimbalKey.KeyRotateByAngle, ComponentIndexType.LEFT_OR_MAIN)
+
+                while (!Thread.currentThread().isInterrupted && isTgpGeoLockActive) {
+                    val curLat = droneLat
+                    val curLon = droneLon
+                    val curAlt = droneAlt
+
+                    if (curLat != 0.0 && curLon != 0.0) {
+                        val dN = (tgpTargetLat - curLat) * 111132.92
+                        val dE = (tgpTargetLon - curLon) * 111412.84 * Math.cos(Math.toRadians(curLat))
+                        val dU = tgpTargetAlt - curAlt
+
+                        val distanceHorizontal = Math.sqrt(dN * dN + dE * dE)
+                        val targetBearingDeg = (Math.toDegrees(Math.atan2(dE, dN)) + 360.0) % 360.0
+                        val targetPitchDeg = Math.toDegrees(Math.atan2(dU, distanceHorizontal))
+
+                        val desiredPitch = targetPitchDeg.coerceIn(-90.0, 30.0)
+                        val relativeYaw = (targetBearingDeg - droneYaw + 360.0) % 360.0
+                        val finalYaw = if (relativeYaw > 180.0) relativeYaw - 360.0 else relativeYaw
+
+                        val rotation = dji.sdk.keyvalue.value.gimbal.GimbalAngleRotation()
+                        rotation.mode = dji.sdk.keyvalue.value.gimbal.GimbalAngleRotationMode.ABSOLUTE_ANGLE
+                        rotation.pitch = desiredPitch
+                        rotation.yaw = finalYaw
+                        rotation.roll = 0.0
+                        rotation.duration = 0.1
+
+                        KeyManager.getInstance().performAction(gimbalAngleKey, rotation, null)
+                    }
+
+                    Thread.sleep(100)
+                }
+            } catch (e: InterruptedException) {
+                // Interrupted
+            }
+        }.apply { start() }
+    }
+
     private var isDistanceLimitEnabled = false
     private var maxFlightDistanceMeters = 50000
 
@@ -6484,6 +6568,30 @@ class MainActivity : AppCompatActivity() {
                         }
                         val distanceMeters = json.optInt("distance_m", json.optInt("max_distance", 50000))
                         setDistanceLimitation(enabled, distanceMeters)
+                        publishCommandReceipt(transactionId, command, "COMPLETED")
+                    }
+                    "TGP_LOCK", "TARGET_POD_LOCK", "TAG_GEO_POINT" -> {
+                        publishCommandReceipt(transactionId, command, "EXECUTING")
+                        val lat = json.optDouble("latitude", json.optDouble("lat", 0.0))
+                        val lon = json.optDouble("longitude", json.optDouble("lon", 0.0))
+                        val alt = json.optDouble("altitude", json.optDouble("alt", 0.0))
+
+                        runOnUiThread {
+                            toggleTargetingPodLock(
+                                if (lat != 0.0) lat else null,
+                                if (lon != 0.0) lon else null,
+                                if (alt != 0.0) alt else null
+                            )
+                        }
+                        publishCommandReceipt(transactionId, command, "COMPLETED")
+                    }
+                    "UNLOCK_TGP", "UNLOCK_POD" -> {
+                        publishCommandReceipt(transactionId, command, "EXECUTING")
+                        runOnUiThread {
+                            if (isTgpGeoLockActive) {
+                                toggleTargetingPodLock()
+                            }
+                        }
                         publishCommandReceipt(transactionId, command, "COMPLETED")
                     }
                     "TRACK_OBJECT", "LOCK_TARGET", "LOCK_OBJECT", "AI_TRACK", "OBJECT_FOLLOW", "AUTO_FOLLOW" -> {

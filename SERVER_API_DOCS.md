@@ -1,5 +1,10 @@
 # Tactical Drone C2 Server Specification
 
+> **Changelog — 2026-08-06 (Military-Grade Targeting Pod Line-of-Sight Geo-Lock & Tagging Engine)**
+> - **Targeting Pod Line-of-Sight Geo-Lock (`toggleTargetingPodLock`):** Implemented military-style Targeting Pod (TGP) Geo-Lock engine. Calculates real-time ground raycast intersection $(\text{Lat}_t, \text{Lon}_t, \text{Alt}_t)$ and runs a 10Hz 3D vector gimbal angle rotation loop (`dji.sdk.keyvalue.key.GimbalKey.KeyRotateByAngle`). Camera remains **100% locked onto the physical ground coordinate** as the drone maneuvers, turns, or flies.
+> - **Tactical HUD Controls & Tagging (`LCK`):** Added circular HUD quick-action button **`LCK`** (Targeting Pod Lock/Unlock) on the main FPV layout. Pressing **`LCK`** toggles LOS Geo-Lock on current camera pointing angle or specified target coordinate.
+> - **Remote C2 Commands:** Added C2 JSON command handlers over `dji-sdk/fleet/{clientId}/command`: `TGP_LOCK`, `TARGET_POD_LOCK`, `TAG_GEO_POINT` (with optional payload `{"latitude": 37.7749, "longitude": -122.4194}`) and `UNLOCK_TGP`, `UNLOCK_POD`.
+>
 > **Changelog — 2026-08-06 (Real Optical Object Tracking & LOCK: OBJECT / HUMAN Label Formatting)**
 > - **Real Optical Bounding Box Coordinates:** Removed artificial drift/centering logic; target bounding box stays locked to exact real optical touch/drag or AI bounding box coordinates (`x_min, y_min, x_max, y_max`).
 > - **Clean Label Formatting & Smaller Font Size:** Updated on-screen bounding box label to `LOCK: OBJECT / HUMAN` using a crisp `20sp` font size without emoji indicators.
