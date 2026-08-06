@@ -1,5 +1,9 @@
 # Tactical Drone C2 Server Specification
 
+> **Changelog — 2026-08-06 (Unlimited Distance Limitation Control & C2 Overrides)**
+> - **Unlimited Distance Control (`setDistanceLimitation`):** Implemented distance limitation bypass engine (`dji.sdk.keyvalue.key.FlightControllerKey.KeyDistanceLimitEnabled` and `KeyDistanceLimit`). Allows switching flight radius mode between **UNLIMITED (NO LIMITATION)** and custom distance limits (e.g. 50,000m).
+> - **System Dialog & MQTT C2 Controls:** Added **`[ 🌐 DISTANCE LIMIT: UNLIMITED (NO LIMIT) ]`** toggle button in System Dialog and C2 MQTT command handlers (`SET_DISTANCE_LIMIT`, `UNLIMITED_DISTANCE`, `REMOVE_DISTANCE_LIMIT`, `DISABLE_DISTANCE_LIMIT`).
+>
 > **Changelog — 2026-08-06 (Belly Landing Lamp & Situational LED Blinking Engine)**
 > - **Bottom Auxiliary / Belly Lamp Control (`setBellyLamp`):** Added explicit toggle control for the bottom landing lamp below the drone (`dji.sdk.keyvalue.value.flightcontroller.LEDsSettings`). Controlled via System Dialog button (`btnBellyLamp`) and MQTT commands (`SET_BELLY_LAMP`, `BELLY_LAMP_ON`, `BELLY_LAMP_OFF`).
 > - **Situational LED Blinking Engine (`updateSituationLighting`):** Automatically switches drone LED lighting states based on flight conditions:

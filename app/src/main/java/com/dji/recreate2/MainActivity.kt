@@ -4484,6 +4484,54 @@ class MainActivity : AppCompatActivity() {
         })
     }
 
+    private var isDistanceLimitEnabled = false
+    private var maxFlightDistanceMeters = 50000
+
+    private fun setDistanceLimitation(enabled: Boolean, distanceMeters: Int = 50000) {
+        isDistanceLimitEnabled = enabled
+        maxFlightDistanceMeters = distanceMeters
+        log("Setting Flight Distance Limitation: enabled=$enabled, distance=${distanceMeters}m")
+
+        val limitEnabledKey = KeyTools.createKey(FlightControllerKey.KeyDistanceLimitEnabled)
+        val distanceLimitKey = KeyTools.createKey(FlightControllerKey.KeyDistanceLimit)
+
+        KeyManager.getInstance().setValue(limitEnabledKey, enabled, object : CommonCallbacks.CompletionCallback {
+            override fun onSuccess() {
+                log("Distance limit enabled set to: $enabled")
+            }
+
+            override fun onFailure(error: IDJIError) {
+                log("Distance limit enabled switch error: ${error.errorCode()}")
+            }
+        })
+
+        if (!enabled || distanceMeters > 0) {
+            KeyManager.getInstance().setValue(distanceLimitKey, distanceMeters, object : CommonCallbacks.CompletionCallback {
+                override fun onSuccess() {
+                    log("Max flight distance limit set to: ${distanceMeters}m")
+                }
+
+                override fun onFailure(error: IDJIError) {
+                    log("Max flight distance value set error: ${error.errorCode()}")
+                }
+            })
+        }
+
+        val prefs = getSharedPreferences("TacticalHUDConfig", Context.MODE_PRIVATE)
+        prefs.edit()
+            .putBoolean("distance_limit_enabled", enabled)
+            .putInt("max_flight_distance", distanceMeters)
+            .apply()
+
+        runOnUiThread {
+            if (!enabled) {
+                showToast("🌐 MAX FLIGHT DISTANCE: UNLIMITED (NO LIMITATION)")
+            } else {
+                showToast("🌐 MAX FLIGHT DISTANCE: LIMITED (${distanceMeters}m)")
+            }
+        }
+    }
+
     private var isStealthModeEnabled = false
     private var isBellyLampOn = false
     private var currentLightingSituation = "NORMAL"
@@ -5376,10 +5424,22 @@ class MainActivity : AppCompatActivity() {
             btnBellyLamp?.setTextColor(if (isBellyLampOn) android.graphics.Color.parseColor("#00FF66") else android.graphics.Color.WHITE)
         }
 
+        val btnDistanceLimit = dialog.findViewById<android.widget.Button>(R.id.btnDistanceLimit)
+
+        fun updateDistanceLimitUi() {
+            btnDistanceLimit?.text = if (!isDistanceLimitEnabled) {
+                "🌐 DISTANCE LIMIT: UNLIMITED (NO LIMIT)"
+            } else {
+                "🌐 DISTANCE LIMIT: LIMITED (${maxFlightDistanceMeters}m)"
+            }
+            btnDistanceLimit?.setTextColor(if (!isDistanceLimitEnabled) android.graphics.Color.parseColor("#00FF66") else android.graphics.Color.WHITE)
+        }
+
         updateGpsDeniedUi()
         updateConfinedSpaceUi()
         updateStealthUi()
         updateBellyLampUi()
+        updateDistanceLimitUi()
 
         btnGpsDeniedMode?.setOnClickListener {
             val next = !com.dji.recreate2.flight.ConfinedSpaceFlightManager.isGpsDeniedModeEnabled
@@ -5404,6 +5464,12 @@ class MainActivity : AppCompatActivity() {
         btnBellyLamp?.setOnClickListener {
             setBellyLamp(!isBellyLampOn)
             updateBellyLampUi()
+        }
+
+        btnDistanceLimit?.setOnClickListener {
+            val nextEnabled = !isDistanceLimitEnabled
+            setDistanceLimitation(enabled = nextEnabled, distanceMeters = if (nextEnabled) 5000 else 50000)
+            updateDistanceLimitUi()
         }
         
         btnConnectServer?.setOnClickListener {
@@ -6324,6 +6390,16 @@ class MainActivity : AppCompatActivity() {
                             else -> json.optBoolean("on", json.optBoolean("enabled", !isBellyLampOn))
                         }
                         setBellyLamp(on)
+                        publishCommandReceipt(transactionId, command, "COMPLETED")
+                    }
+                    "SET_DISTANCE_LIMIT", "UNLIMITED_DISTANCE", "REMOVE_DISTANCE_LIMIT", "DISABLE_DISTANCE_LIMIT" -> {
+                        publishCommandReceipt(transactionId, command, "EXECUTING")
+                        val enabled = when (command) {
+                            "UNLIMITED_DISTANCE", "REMOVE_DISTANCE_LIMIT", "DISABLE_DISTANCE_LIMIT" -> false
+                            else -> json.optBoolean("enabled", false)
+                        }
+                        val distanceMeters = json.optInt("distance_m", json.optInt("max_distance", 50000))
+                        setDistanceLimitation(enabled, distanceMeters)
                         publishCommandReceipt(transactionId, command, "COMPLETED")
                     }
                     "GIMBAL_SPEED" -> {
