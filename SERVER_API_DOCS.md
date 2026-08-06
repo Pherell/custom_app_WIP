@@ -1,5 +1,9 @@
 # Tactical Drone C2 Server Specification
 
+> **Changelog — 2026-08-06 (Media File Pull Fix & Fallback Pipeline)**
+> - **Resolved `get media files failed` Error:** Fixed MSDK V5 `pullMediaFileListFromCamera` failure by setting `count(-1)` parameter in `PullMediaFileListParam.Builder()`.
+> - **Automatic Parameter Fallback Retry Pipeline:** If the primary full file list query fails, automatically retries with a default parameter builder (`PullMediaFileListParam.Builder().build()`) to guarantee media list extraction across all DJI Enterprise drone storage types (SD Card & Internal Storage).
+>
 > **Changelog — 2026-08-06 (Low-Latency Video Stream Optimization & Remote C2 Commands)**
 > - **Hardware FPV Rendering Optimization (`bindVideoStream`):** Enforced zero-copy hardware surface formatting (`PixelFormat.TRANSLUCENT`) and direct GPU scaling (`ScaleType.CENTER_CROP`) on the tablet FPV feed, eliminating rendering stutter and CPU decoding lag.
 > - **High-Quality Low-Latency RTMP Stream Pipeline (`startRtmpStream`):** Configured direct H.264 hardware encoder passthrough from the primary camera lens (`ComponentIndexType.LEFT_OR_MAIN`), delivering ultra-smooth 1080p video streams with minimal network buffering latency.

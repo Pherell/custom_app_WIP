@@ -114,57 +114,76 @@ object WebODMAutoUpload {
     }
 
     private fun pullMediaListInternal(context: Context, mediaManager: dji.v5.manager.interfaces.IMediaManager, missionStartTime: Long, missionEndTime: Long) {
-        val param = dji.v5.manager.datacenter.media.PullMediaFileListParam.Builder().build()
+        val param = dji.v5.manager.datacenter.media.PullMediaFileListParam.Builder()
+            .count(-1)
+            .build()
+
+        Log.d(TAG, "Pulling media file list for WebODM orthophoto pipeline...")
         mediaManager.pullMediaFileListFromCamera(param, object : CommonCallbacks.CompletionCallback {
             override fun onSuccess() {
                 val fileList = mediaManager.mediaFileListData.data ?: emptyList()
-                val photoFiles = fileList.filter { mediaFile -> 
-                    val isImage = mediaFile.fileName.endsWith(".jpg", ignoreCase = true) || mediaFile.fileName.endsWith(".jpeg", ignoreCase = true)
-                    
-                    var fileTimestamp = 0L
-                    try {
-                        val timeStr = mediaFile.javaClass.getMethod("getCreateTime").invoke(mediaFile) as? String
-                        if (timeStr != null) {
-                            val format = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.US)
-                            val date = format.parse(timeStr)
-                            if (date != null) {
-                                fileTimestamp = date.time
-                            }
-                        }
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Gagal mendapatkan timestamp file: ${mediaFile.fileName}")
-                    }
-                    
-                    val isFromThisMission = if (missionStartTime > 0L && fileTimestamp > 0L) {
-                        fileTimestamp in missionStartTime..missionEndTime
-                    } else {
-                        true
-                    }
-                    
-                    isImage && isFromThisMission
-                }
-                
-                if (photoFiles.isEmpty()) {
-                    Log.d(TAG, "No photos found on drone.")
-                    android.os.Handler(android.os.Looper.getMainLooper()).post {
-                        android.widget.Toast.makeText(context, "⚠️ ALERT: No media files found in camera storage to sync!", android.widget.Toast.LENGTH_LONG).show()
-                    }
-                    isDownloading = false
-                    return
-                }
-                
-                Log.d(TAG, "Found ${photoFiles.size} photos. Starting download...")
-                downloadAndUploadPhotos(context, photoFiles)
+                processWebOdmFileList(context, fileList, missionStartTime, missionEndTime)
             }
-            
+
             override fun onFailure(error: IDJIError) {
-                Log.e(TAG, "Failed to pull media file list: ${error.description()}")
-                android.os.Handler(android.os.Looper.getMainLooper()).post {
-                    android.widget.Toast.makeText(context, "⚠️ ALERT: Media fetch failed: ${error.description()}", android.widget.Toast.LENGTH_LONG).show()
-                }
-                isDownloading = false
+                Log.w(TAG, "Primary WebODM pullMediaFileList failed (${error.description()}). Retrying with default param...")
+                val defaultParam = dji.v5.manager.datacenter.media.PullMediaFileListParam.Builder().build()
+                mediaManager.pullMediaFileListFromCamera(defaultParam, object : CommonCallbacks.CompletionCallback {
+                    override fun onSuccess() {
+                        val fileList = mediaManager.mediaFileListData.data ?: emptyList()
+                        processWebOdmFileList(context, fileList, missionStartTime, missionEndTime)
+                    }
+
+                    override fun onFailure(err2: IDJIError) {
+                        Log.e(TAG, "All WebODM media list pulls failed: ${err2.description()}")
+                        android.os.Handler(android.os.Looper.getMainLooper()).post {
+                            android.widget.Toast.makeText(context, "⚠️ ALERT: Media fetch failed: [${err2.errorCode()}] ${err2.description()}", android.widget.Toast.LENGTH_LONG).show()
+                        }
+                        isDownloading = false
+                    }
+                })
             }
         })
+    }
+
+    private fun processWebOdmFileList(context: Context, fileList: List<MediaFile>, missionStartTime: Long, missionEndTime: Long) {
+        val photoFiles = fileList.filter { mediaFile -> 
+            val isImage = mediaFile.fileName.endsWith(".jpg", ignoreCase = true) || mediaFile.fileName.endsWith(".jpeg", ignoreCase = true)
+            
+            var fileTimestamp = 0L
+            try {
+                val timeStr = mediaFile.javaClass.getMethod("getCreateTime").invoke(mediaFile) as? String
+                if (timeStr != null) {
+                    val format = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.US)
+                    val date = format.parse(timeStr)
+                    if (date != null) {
+                        fileTimestamp = date.time
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Gagal mendapatkan timestamp file: ${mediaFile.fileName}")
+            }
+            
+            val isFromThisMission = if (missionStartTime > 0L && fileTimestamp > 0L) {
+                fileTimestamp in missionStartTime..missionEndTime
+            } else {
+                true
+            }
+            
+            isImage && isFromThisMission
+        }
+        
+        if (photoFiles.isEmpty()) {
+            Log.d(TAG, "No photos found on drone.")
+            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                android.widget.Toast.makeText(context, "⚠️ ALERT: No media files found in camera storage to sync!", android.widget.Toast.LENGTH_LONG).show()
+            }
+            isDownloading = false
+            return
+        }
+        
+        Log.d(TAG, "Found ${photoFiles.size} photos. Starting download...")
+        downloadAndUploadPhotos(context, photoFiles)
     }
 
     private fun downloadAndUploadPhotos(context: Context, droneFiles: List<MediaFile>) {

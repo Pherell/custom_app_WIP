@@ -92,44 +92,63 @@ object PostFlightS3Sync {
     }
 
     private fun pullMediaListInternal(context: Context, mediaManager: dji.v5.manager.interfaces.IMediaManager) {
-        val param = dji.v5.manager.datacenter.media.PullMediaFileListParam.Builder().build()
+        val param = dji.v5.manager.datacenter.media.PullMediaFileListParam.Builder()
+            .count(-1)
+            .build()
+
+        Log.d(TAG, "Pulling media file list from camera storage...")
         mediaManager.pullMediaFileListFromCamera(param, object : CommonCallbacks.CompletionCallback {
             override fun onSuccess() {
                 val fileList = mediaManager.mediaFileListData.data ?: emptyList()
-                Log.d(TAG, "Pulled ${fileList.size} media files from camera storage.")
-
-                // Filter for image and video files
-                val newFiles = fileList.filter { mediaFile ->
-                    val isImage = mediaFile.fileName.endsWith(".jpg", ignoreCase = true) || 
-                                  mediaFile.fileName.endsWith(".jpeg", ignoreCase = true) ||
-                                  mediaFile.fileName.endsWith(".dng", ignoreCase = true)
-                    val isVideo = mediaFile.fileName.endsWith(".mp4", ignoreCase = true) ||
-                                  mediaFile.fileName.endsWith(".mov", ignoreCase = true)
-                    
-                    isImage || isVideo
-                }
-
-                if (newFiles.isEmpty()) {
-                    Log.d(TAG, "No media files found to sync in camera storage.")
-                    Handler(Looper.getMainLooper()).post {
-                        Toast.makeText(context, "⚠️ Mode 2: No media files found in drone storage!", Toast.LENGTH_LONG).show()
-                    }
-                    isSyncing = false
-                    return
-                }
-
-                Log.d(TAG, "Found ${newFiles.size} media files for Mode 2 sync.")
-                downloadAndUploadFiles(context, newFiles)
+                Log.d(TAG, "Successfully pulled ${fileList.size} media files from camera storage.")
+                processMediaFileList(context, fileList)
             }
 
             override fun onFailure(error: IDJIError) {
-                Log.e(TAG, "Failed to pull media file list: ${error.description()}")
-                Handler(Looper.getMainLooper()).post {
-                    Toast.makeText(context, "⚠️ Mode 2: Media fetch failed: ${error.description()}", Toast.LENGTH_LONG).show()
-                }
-                isSyncing = false
+                Log.w(TAG, "Primary pullMediaFileList failed (${error.description()}). Retrying with default param...")
+                val defaultParam = dji.v5.manager.datacenter.media.PullMediaFileListParam.Builder().build()
+                mediaManager.pullMediaFileListFromCamera(defaultParam, object : CommonCallbacks.CompletionCallback {
+                    override fun onSuccess() {
+                        val fileList = mediaManager.mediaFileListData.data ?: emptyList()
+                        processMediaFileList(context, fileList)
+                    }
+
+                    override fun onFailure(err2: IDJIError) {
+                        Log.e(TAG, "All media file list pulls failed: ${err2.description()}")
+                        Handler(Looper.getMainLooper()).post {
+                            Toast.makeText(context, "⚠️ Mode 2: Media fetch failed: [${err2.errorCode()}] ${err2.description()}", Toast.LENGTH_LONG).show()
+                        }
+                        isSyncing = false
+                    }
+                })
             }
         })
+    }
+
+    private fun processMediaFileList(context: Context, fileList: List<MediaFile>) {
+        Log.d(TAG, "Pulled ${fileList.size} raw media files from camera storage.")
+
+        val newFiles = fileList.filter { mediaFile ->
+            val isImage = mediaFile.fileName.endsWith(".jpg", ignoreCase = true) || 
+                          mediaFile.fileName.endsWith(".jpeg", ignoreCase = true) ||
+                          mediaFile.fileName.endsWith(".dng", ignoreCase = true)
+            val isVideo = mediaFile.fileName.endsWith(".mp4", ignoreCase = true) ||
+                          mediaFile.fileName.endsWith(".mov", ignoreCase = true)
+            
+            isImage || isVideo
+        }
+
+        if (newFiles.isEmpty()) {
+            Log.d(TAG, "No image/video files found to sync in camera storage.")
+            Handler(Looper.getMainLooper()).post {
+                Toast.makeText(context, "⚠️ Mode 2: No media files found in drone storage!", Toast.LENGTH_LONG).show()
+            }
+            isSyncing = false
+            return
+        }
+
+        Log.d(TAG, "Found ${newFiles.size} media files for Mode 2 sync.")
+        downloadAndUploadFiles(context, newFiles)
     }
 
     fun getLocalFetchFolderName(context: Context): String {
