@@ -18,10 +18,13 @@ A dark-mode, military-style FPV overlay designed for maximum situational awarene
 *   **Obstacle Radar:** An on-screen UI widget mapping proximity sensor data in 360 degrees.
 *   **Critical Alerts:** Blinking red warnings for Thermal, Battery, Signal Loss, and Obstacle Proximity.
 
-### 3. Edge Server Integration (MQTT)
+### 3. Edge Server Integration & S3 Cloud Storage
 Built for air-gapped or private enterprise networks, the app acts as a local bridge between the drone and a secure open-source backend.
-*   **Live Telemetry Broadcast:** Broadcasts high-frequency GPS, battery, and kinematics data via Eclipse Paho MQTT.
-*   **Remote C2:** Subscribes to command topics, allowing remote commanders to inject waypoints, trigger Return-to-Home (RTH), or execute missions remotely.
+*   **Live Telemetry Broadcast:** Broadcasts high-frequency GPS, battery, and kinematics data via Eclipse Paho MQTT using the `dji-sdk/fleet/` namespace.
+*   **Remote C2:** Subscribes to command topics, allowing remote commanders to inject waypoints, trigger Return-to-Home (RTH), set zoom/focus, or execute missions remotely.
+*   **ISR Mode 1 (High-Res S3/Local & Raw FPV Stream):** Takes high-resolution photos with automatic GPS/altitude/yaw/pitch EXIF metadata injection. Records clean raw FPV stream video directly on tablet with optional toggleable Target Reticle Box and Compass Tape overlays, producing companion `.srt` 1-second telemetry subtitle files.
+*   **ISR Mode 2 (Post-Flight & Landed SD Auto Sync):** Automatically syncs all mission media from drone camera storage to S3 and device local storage upon touchdown/landing detection or on demand via `[ 🔄 SYNC NOW ]`.
+*   **Local Storage Fallback (`saveToLocalStorage`):** Preserves all Mode 1 captures and Mode 2 synced files directly in designated tablet local storage (`Pictures/ISR_Local_Storage` or custom SAF folder) even if Ceph S3 server is offline or air-gapped.
 
 ---
 
@@ -64,20 +67,44 @@ The app listens for incoming commands from the server to alter its mission state
 *   **Topic:** `dji-sdk/fleet/{drone_id}/command`
 *   **Payload (JSON):**
 
-**Add Waypoint:**
+**Add Waypoint / Create Named Route:**
 ```json
 {
-  "command": "ADD_WAYPOINT",
-  "lat": 34.0531,
-  "lon": -118.2450,
-  "alt": 50.0
+  "command": "CREATE_ROUTE",
+  "route_name": "Waypoint_1",
+  "waypoints": [
+    { "lat": 34.0531, "lon": -118.2450, "alt": 50.0, "speed": 5.0 }
+  ]
 }
 ```
 
-**Execute Mission:**
+**Select / Delete Specific Route:**
 ```json
 {
-  "command": "EXECUTE_MISSION"
+  "command": "DELETE_ROUTE",
+  "route_name": "Waypoint_1"
+}
+```
+
+**Execute Chained Mission Routes:**
+```json
+{
+  "command": "EXECUTE_ROUTE",
+  "routes": ["Waypoint_1", "Waypoint_2"]
+}
+```
+
+**Isolated KMZ Clear:**
+```json
+{
+  "command": "CLEAR_KMZ"
+}
+```
+
+**Master Map Clear:**
+```json
+{
+  "command": "CLEAR_MAP"
 }
 ```
 

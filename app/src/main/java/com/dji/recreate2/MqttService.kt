@@ -24,36 +24,29 @@ class MqttService(context: Context) {
     // Callbacks to communicate back to MainActivity
     var onCommandReceived: ((JSONObject) -> Unit)? = null
     var onConnectionStatusChanged: ((Boolean) -> Unit)? = null
+    var onErrorOccurred: ((String) -> Unit)? = null
 
     fun connect(serverUri: String, clientId: String = "drone_" + java.util.UUID.randomUUID().toString().substring(0,8)) {
         // M-08: cancel any pending connection attempt before starting a new one
         connectFuture?.cancel(false)
         connectFuture = executor.submit {
             synchronized(clientLock) {
+                var cleanUri = serverUri.trim()
+                if (!cleanUri.startsWith("tcp://") && !cleanUri.startsWith("ssl://") && 
+                    !cleanUri.startsWith("ws://") && !cleanUri.startsWith("wss://")) {
+                    cleanUri = "tcp://$cleanUri"
+                }
+                
                 try {
                     if (mqttClient != null && mqttClient!!.isConnected) {
-                        mqttClient!!.disconnect()
+                        try { mqttClient!!.disconnect() } catch (e: Exception) {}
                     }
 
-                    mqttClient = MqttClient(serverUri, clientId, MemoryPersistence())
+                    mqttClient = MqttClient(cleanUri, clientId, MemoryPersistence())
                 
-                    // L-08: use EncryptedSharedPreferences so credentials are not stored in plaintext
-                    val sharedPrefs = try {
-                        val masterKey = androidx.security.crypto.MasterKey.Builder(appContext)
-                            .setKeyScheme(androidx.security.crypto.MasterKey.KeyScheme.AES256_GCM)
-                            .build()
-                        androidx.security.crypto.EncryptedSharedPreferences.create(
-                            appContext,
-                            "TacticalHUDConfig",
-                            masterKey,
-                            androidx.security.crypto.EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-                            androidx.security.crypto.EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
-                        )
-                    } catch (e: Exception) {
-                        Log.w(tag, "EncryptedSharedPreferences unavailable, falling back to plaintext: ${e.message}")
-                        appContext.getSharedPreferences("TacticalHUDConfig", Context.MODE_PRIVATE)
-                    }
+                    val sharedPrefs = appContext.getSharedPreferences("TacticalHUDConfig", Context.MODE_PRIVATE)
                     val passStr = sharedPrefs.getString("mqttPass", "password") ?: "password"
+                    val userStr = sharedPrefs.getString("mqttUser", "admin") ?: "admin"
                     val passChars = passStr.toCharArray()
 
                     val options = MqttConnectOptions().apply {
@@ -61,8 +54,8 @@ class MqttService(context: Context) {
                         connectionTimeout = 30 // Fix BUG-17: Brittle MQTT connection timeout (increased from 10s)
                         keepAliveInterval = 60 // Fix BUG-17: Brittle MQTT keep-alive (increased from 20s)
                         isAutomaticReconnect = true
-                        userName = sharedPrefs.getString("mqttUser", "admin")
-                        password = passChars
+                        if (userStr.isNotEmpty()) userName = userStr
+                        if (passStr.isNotEmpty()) password = passChars
                     }
 
                     mqttClient?.setCallback(object : MqttCallbackExtended {
@@ -85,9 +78,11 @@ class MqttService(context: Context) {
                         }
 
                         override fun connectionLost(cause: Throwable?) {
-                            Log.w(tag, "Connection lost", cause)
+                            val causeMsg = cause?.localizedMessage ?: cause?.message ?: "Unknown connection loss"
+                            Log.w(tag, "Connection lost: $causeMsg", cause)
                             isConnected = false
                             onConnectionStatusChanged?.invoke(false)
+                            onErrorOccurred?.invoke("Connection Lost: $causeMsg")
                         }
 
                         override fun messageArrived(topic: String?, message: MqttMessage?) {
@@ -108,16 +103,18 @@ class MqttService(context: Context) {
                         override fun deliveryComplete(token: IMqttDeliveryToken?) {}
                     })
 
-                    Log.d(tag, "Connecting to MQTT broker: $serverUri")
+                    Log.d(tag, "Connecting to MQTT broker: $cleanUri")
                     mqttClient?.connect(options)
                     
                     // Fix BUG-18: Securely zero out raw password array in memory
                     Arrays.fill(passChars, '0')
 
                 } catch (e: Exception) {
-                    Log.e(tag, "Failed to connect to MQTT broker", e)
+                    val errorMsg = e.localizedMessage ?: e.message ?: e.toString()
+                    Log.e(tag, "Failed to connect to MQTT broker ($cleanUri): $errorMsg", e)
                     isConnected = false
                     onConnectionStatusChanged?.invoke(false)
+                    onErrorOccurred?.invoke(errorMsg)
                 }
             }
         }

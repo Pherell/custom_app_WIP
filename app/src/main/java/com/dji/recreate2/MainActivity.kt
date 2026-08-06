@@ -9,6 +9,8 @@ import android.view.SurfaceView
 import android.view.View
 import android.view.WindowManager
 import android.widget.Button
+import android.widget.EditText
+import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
@@ -159,6 +161,10 @@ class MainActivity : AppCompatActivity() {
     private var btnPair: TextView? = null
     private var logText: TextView? = null
     private val logHistory = StringBuffer() // L-04: StringBuffer is thread-safe
+
+    // SAF local folder picker
+    private val REQUEST_CODE_PICK_LOCAL_FOLDER = 7241
+    private var pendingLocalFolderEditText: android.widget.EditText? = null
     
     
     private var swipeSensitivity = 0.2f
@@ -324,6 +330,106 @@ class MainActivity : AppCompatActivity() {
                 android.widget.Toast.makeText(this@MainActivity, "MQTT COMMAND RECEIVED: $json", android.widget.Toast.LENGTH_LONG).show()
             }
             handleMqttCommand(json)
+        }
+        mqttService.onErrorOccurred = { errorMsg ->
+            runOnUiThread {
+                android.widget.Toast.makeText(this@MainActivity, "MQTT Connection Error: $errorMsg", android.widget.Toast.LENGTH_LONG).show()
+                log("MQTT ERROR: $errorMsg")
+            }
+        }
+
+        // --- S3 UPLOAD STATUS & ALERT LISTENERS ---
+        com.dji.recreate2.aws.S3UploadManager.onUploadStartListener = { filename, targetUrl, size ->
+            val activeTask = com.dji.recreate2.task.DroneTaskManager.activeTaskId
+            if (::mqttService.isInitialized && mqttService.isConnected) {
+                val payload = org.json.JSONObject().apply {
+                    put("event", "UPLOAD_START")
+                    put("filename", filename)
+                    put("targetUrl", targetUrl)
+                    put("fileSize", size)
+                    if (activeTask != null) put("taskId", activeTask)
+                }
+                mqttService.publishMission(jsonPayload = payload.toString())
+            }
+        }
+
+        com.dji.recreate2.aws.S3UploadManager.onUploadSuccessListener = { filename, targetUrl, durationMs ->
+            val activeTask = com.dji.recreate2.task.DroneTaskManager.activeTaskId
+            if (::mqttService.isInitialized && mqttService.isConnected) {
+                val payload = org.json.JSONObject().apply {
+                    put("event", "UPLOAD_SUCCESS")
+                    put("filename", filename)
+                    put("targetUrl", targetUrl)
+                    put("durationMs", durationMs)
+                    if (activeTask != null) put("taskId", activeTask)
+                }
+                mqttService.publishMission(jsonPayload = payload.toString())
+            }
+            runOnUiThread {
+                showToast("S3 Upload Complete: $filename")
+            }
+        }
+
+        com.dji.recreate2.aws.S3UploadManager.onUploadFailedListener = { filename, targetUrl, code, error ->
+            val activeTask = com.dji.recreate2.task.DroneTaskManager.activeTaskId
+            if (::mqttService.isInitialized && mqttService.isConnected) {
+                val payload = org.json.JSONObject().apply {
+                    put("event", "UPLOAD_FAILED")
+                    put("filename", filename)
+                    put("targetUrl", targetUrl)
+                    put("httpCode", code)
+                    put("error", error)
+                    if (activeTask != null) put("taskId", activeTask)
+                }
+                mqttService.publishMission(jsonPayload = payload.toString())
+            }
+            runOnUiThread {
+                val alertText = if (code == 401 || code == 403) {
+                    "⚠️ ALERT: S3 Authorization Failed (HTTP $code) - Check Ceph credentials!"
+                } else {
+                    "⚠️ ALERT: S3 Upload Failed ($filename): $error"
+                }
+                android.widget.Toast.makeText(this@MainActivity, alertText, android.widget.Toast.LENGTH_LONG).show()
+            }
+        }
+
+        // --- DRONE TASK MANAGER CALLBACKS ---
+        com.dji.recreate2.task.DroneTaskManager.onTaskStateChanged = { task ->
+            if (::mqttService.isInitialized && mqttService.isConnected) {
+                val payload = org.json.JSONObject().apply {
+                    put("event", "TASK_STATE_CHANGED")
+                    put("taskId", task.taskId)
+                    put("taskName", task.taskName)
+                    put("taskType", task.taskType)
+                    put("status", task.status)
+                    put("queuedCount", com.dji.recreate2.task.DroneTaskManager.queuedCount)
+                }
+                mqttService.publishMission(jsonPayload = payload.toString())
+            }
+            runOnUiThread {
+                showToast("Task Engine: Task '${task.taskId}' -> ${task.status}")
+            }
+        }
+
+        com.dji.recreate2.task.DroneTaskManager.onExecuteTaskCallback = { task ->
+            runOnUiThread {
+                showToast("Executing Task '${task.taskId}'...")
+            }
+            if (task.waypointsJson != null && task.waypointsJson.isNotEmpty()) {
+                try {
+                    val json = org.json.JSONObject(task.waypointsJson)
+                    handleMqttCommand(json)
+                } catch (e: Exception) {
+                    android.util.Log.e("TaskEngine", "Failed to parse task waypoints json: ${e.message}")
+                }
+            }
+        }
+
+        com.dji.recreate2.task.DroneTaskManager.onAbortTaskCallback = { task ->
+            runOnUiThread {
+                showToast("⚠️ ALERT: Task '${task.taskId}' CANCELLED / ABORTED!")
+            }
+            cancelActiveMission()
         }
         
         // --- DUMMY HEARTBEAT REMOVED ---
@@ -578,26 +684,21 @@ class MainActivity : AppCompatActivity() {
         // Setup Delete Waypoint button (visible only in MAP mode)
         val btnDeleteWaypoint = findViewById<TextView>(R.id.btnDeleteWaypoint)
         btnDeleteWaypoint.setOnClickListener {
-            // Clear Waypoints and POIs
-            tacticalWaypoints.clear()
+            // Master Clear: erase ALL mission overlays, polygons, and waypoint queues (preserving drone/home markers)
             mapView.overlays.removeAll { 
-                it is org.osmdroid.views.overlay.Marker && 
-                (it.title?.startsWith("WP") == true || it.title == "POI TARGET") 
+                it is org.osmdroid.views.overlay.Marker && it != droneMarker && it != homeMapMarker || 
+                it is org.osmdroid.views.overlay.Polygon || 
+                (it is org.osmdroid.views.overlay.Polyline && it != headingLine) 
             }
+            tacticalWaypoints.clear()
+            com.dji.recreate2.sync.WaypointRouteManager.clearAllRoutes()
             
-            // Clear Grid Mapping State
             shapePoints.clear()
-            for (m in shapeVertexMarkers) {
-                mapView.overlays.remove(m)
-            }
             shapeVertexMarkers.clear()
-            shapePolygon?.let { mapView.overlays.remove(it) }
             shapePolygon = null
-            shapePolyline?.let { mapView.overlays.remove(it) }
             shapePolyline = null
             
             previewWaypoints.clear()
-            previewGridPolyline?.let { mapView.overlays.remove(it) }
             previewGridPolyline = null
             
             findViewById<TextView>(R.id.btnGenerateGrid).visibility = View.GONE
@@ -609,7 +710,7 @@ class MainActivity : AppCompatActivity() {
             
             updateFlightPathLine()
             mapView.invalidate()
-            showToast("Map Cleared")
+            showToast("Master Map Cleared")
         }
 
         findViewById<TextView>(R.id.btnOrbit).setOnClickListener {
@@ -944,6 +1045,11 @@ class MainActivity : AppCompatActivity() {
             showToast("TAP MAP TO ADD WAYPOINTS")
         }
         
+        val btnRouteManager = findViewById<View>(R.id.btnRouteManager)
+        btnRouteManager?.setOnClickListener {
+            showRouteManagerDialog()
+        }
+        
         val btnModePOI = findViewById<TextView>(R.id.btnModePOI)
         btnModePOI.setOnClickListener {
             currentMapInteraction = MapInteractionType.POI
@@ -1052,11 +1158,14 @@ class MainActivity : AppCompatActivity() {
         
         findViewById<android.widget.Button>(R.id.btnClearKmz).setOnClickListener {
             runOnUiThread {
-                val toRemove = mapView.overlays.filter { it is org.osmdroid.views.overlay.Polyline || (it is org.osmdroid.views.overlay.Marker && it.title?.startsWith("WP") == true) || (it is org.osmdroid.views.overlay.Polygon) }
-                mapView.overlays.removeAll(toRemove)
-                tacticalWaypoints.clear()
+                // Isolated KMZ Clear: remove imported KMZ polylines and KMZ markers only
+                val kmzOverlays = mapView.overlays.filter { overlay ->
+                    (overlay is org.osmdroid.views.overlay.Polyline && overlay != flightPathPolyline && overlay != previewGridPolyline) ||
+                    (overlay is org.osmdroid.views.overlay.Marker && (overlay.title?.contains("KMZ", ignoreCase = true) == true || overlay.title?.contains("Wayline", ignoreCase = true) == true))
+                }
+                mapView.overlays.removeAll(kmzOverlays)
                 mapView.invalidate()
-                showToast("Map cleared.")
+                showToast("KMZ Route Cleared (User Waypoints Preserved)")
             }
         }
         
@@ -1184,6 +1293,7 @@ class MainActivity : AppCompatActivity() {
         }
         
         findViewById<TextView>(R.id.btnCenterGimbal).setOnClickListener { centerGimbal() }
+        findViewById<TextView>(R.id.btnResetZoom)?.setOnClickListener { resetZoom() }
         findViewById<TextView>(R.id.btnToggleJoysticks).setOnClickListener { toggleJoysticks() }
         findViewById<TextView>(R.id.btnSystem).setOnClickListener { showSystemDialog() }
 
@@ -1512,6 +1622,261 @@ class MainActivity : AppCompatActivity() {
             }
             .setNegativeButton("CANCEL", null)
             .show()
+    }
+
+    private fun showRouteManagerDialog() {
+        val dialog = android.app.Dialog(this)
+        dialog.setContentView(R.layout.dialog_route_manager)
+        dialog.window?.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT))
+
+        val layoutRoutesContainer = dialog.findViewById<android.widget.LinearLayout>(R.id.layoutRoutesContainer)
+        val btnCreateNewRoute = dialog.findViewById<Button>(R.id.btnCreateNewRoute)
+        val btnChainExecuteRoutes = dialog.findViewById<Button>(R.id.btnChainExecuteRoutes)
+        val btnMasterClearMap = dialog.findViewById<Button>(R.id.btnMasterClearMap)
+        val btnCloseRouteManager = dialog.findViewById<TextView>(R.id.btnCloseRouteManager)
+
+        fun refreshRouteList() {
+            layoutRoutesContainer?.removeAllViews()
+            val allRoutes = com.dji.recreate2.sync.WaypointRouteManager.getAllRoutes()
+            val activeId = com.dji.recreate2.sync.WaypointRouteManager.activeRouteId
+
+            for (route in allRoutes) {
+                val row = android.widget.LinearLayout(this).apply {
+                    orientation = android.widget.LinearLayout.HORIZONTAL
+                    gravity = android.view.Gravity.CENTER_VERTICAL
+                    setPadding(12, 10, 12, 10)
+                    layoutParams = android.widget.LinearLayout.LayoutParams(
+                        android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                        android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+                    ).apply { setMargins(0, 0, 0, 8) }
+                    background = androidx.core.content.ContextCompat.getDrawable(this@MainActivity, R.drawable.bg_telemetry_capsule)
+                }
+
+                // Checkbox for map visibility
+                val cbVisible = android.widget.CheckBox(this).apply {
+                    isChecked = route.isVisibleOnMap
+                    setOnCheckedChangeListener { _, isChecked ->
+                        com.dji.recreate2.sync.WaypointRouteManager.setRouteVisibility(route.id, isChecked)
+                        updateFlightPathLine()
+                        mapView.invalidate()
+                    }
+                }
+
+                // Title & WP Count
+                val tvTitle = TextView(this).apply {
+                    text = "${route.name} (${route.waypoints.size} WPs)"
+                    setTextColor(if (route.id == activeId) android.graphics.Color.parseColor("#00FF66") else android.graphics.Color.WHITE)
+                    textSize = 12f
+                    setTypeface(null, android.graphics.Typeface.BOLD)
+                    layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                    setOnClickListener {
+                        com.dji.recreate2.sync.WaypointRouteManager.setActiveRoute(route.id)
+                        showToast("Active Route: ${route.name}")
+                        refreshRouteList()
+                    }
+                }
+
+                // Delete button
+                val btnDel = TextView(this).apply {
+                    text = "🗑"
+                    setTextColor(android.graphics.Color.parseColor("#FF3333"))
+                    textSize = 14f
+                    setPadding(12, 6, 12, 6)
+                    setOnClickListener {
+                        com.dji.recreate2.sync.WaypointRouteManager.deleteRoute(route.id)
+                        updateFlightPathLine()
+                        mapView.invalidate()
+                        refreshRouteList()
+                        showToast("Deleted ${route.name}")
+                    }
+                }
+
+                row.addView(cbVisible)
+                row.addView(tvTitle)
+                row.addView(btnDel)
+                layoutRoutesContainer?.addView(row)
+            }
+        }
+
+        refreshRouteList()
+
+        btnCreateNewRoute?.setOnClickListener {
+            val newRoute = com.dji.recreate2.sync.WaypointRouteManager.createNewRoute()
+            showToast("Created ${newRoute.name}")
+            refreshRouteList()
+        }
+
+        btnChainExecuteRoutes?.setOnClickListener {
+            val chainedWps = com.dji.recreate2.sync.WaypointRouteManager.getChainedExecutionWaypoints()
+            if (chainedWps.isEmpty()) {
+                showToast("No waypoints to execute.")
+                return@setOnClickListener
+            }
+            dialog.dismiss()
+            executeTacticalMission()
+        }
+
+        btnMasterClearMap?.setOnClickListener {
+            dialog.dismiss()
+            findViewById<TextView>(R.id.btnDeleteWaypoint)?.performClick()
+        }
+
+        btnCloseRouteManager?.setOnClickListener {
+            dialog.dismiss()
+        }
+
+        dialog.show()
+    }
+
+    private fun showFetchMediaFolderSelectionDialog() {
+        val density = resources.displayMetrics.density
+        fun dp(value: Int): Int = (value * density).toInt()
+
+        val layout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(16), dp(16), dp(16))
+            setBackgroundResource(R.drawable.bg_atak_panel)
+        }
+
+        val titleTv = TextView(this).apply {
+            text = "MEDIA FETCH & CEPH S3 SYNC DESTINATION"
+            setTextColor(android.graphics.Color.parseColor("#00FF66"))
+            textSize = 13f
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+            setPadding(0, 0, 0, dp(12))
+        }
+        layout.addView(titleTv)
+
+        val localLabel = TextView(this).apply {
+            text = "Local Device Download Folder:"
+            setTextColor(android.graphics.Color.parseColor("#AAAAAA"))
+            textSize = 11f
+        }
+        layout.addView(localLabel)
+
+        val etLocal = EditText(this).apply {
+            setText(com.dji.recreate2.sync.PostFlightS3Sync.getLocalFetchFolderName(this@MainActivity))
+            setTextColor(android.graphics.Color.WHITE)
+            setBackgroundResource(R.drawable.bg_telemetry_capsule)
+            setPadding(dp(10), dp(8), dp(10), dp(8))
+            hint = "e.g. ISR_Mode2_Sync or Custom_Folder"
+            setHintTextColor(android.graphics.Color.parseColor("#666666"))
+            textSize = 12f
+        }
+        layout.addView(etLocal)
+
+        val space1 = View(this).apply { layoutParams = LinearLayout.LayoutParams(1, dp(10)) }
+        layout.addView(space1)
+
+        val s3Label = TextView(this).apply {
+            text = "Ceph S3 Target Subfolder:"
+            setTextColor(android.graphics.Color.parseColor("#AAAAAA"))
+            textSize = 11f
+        }
+        layout.addView(s3Label)
+
+        val currentCustom = com.dji.recreate2.aws.S3UploadManager.getCustomFolderName(this@MainActivity)
+        val etS3Folder = EditText(this).apply {
+            setText(if (currentCustom.isNotEmpty()) currentCustom else java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date()))
+            setTextColor(android.graphics.Color.WHITE)
+            setBackgroundResource(R.drawable.bg_telemetry_capsule)
+            setPadding(dp(10), dp(8), dp(10), dp(8))
+            hint = "e.g. recon_alpha_01 or YYYY-MM-DD"
+            setHintTextColor(android.graphics.Color.parseColor("#666666"))
+            textSize = 12f
+        }
+        layout.addView(etS3Folder)
+
+        val space2 = View(this).apply { layoutParams = LinearLayout.LayoutParams(1, dp(16)) }
+        layout.addView(space2)
+
+        val dialog = android.app.AlertDialog.Builder(this)
+            .setView(layout)
+            .create()
+
+        dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
+
+        val btnContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+
+        val btnRow1 = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { bottomMargin = dp(6) }
+        }
+
+        val btnCreateRemote = Button(this).apply {
+            text = "📁 CREATE S3 FOLDER"
+            setTextColor(android.graphics.Color.WHITE)
+            setBackgroundResource(R.drawable.bg_glass_btn)
+            textSize = 11f
+            layoutParams = LinearLayout.LayoutParams(0, dp(40), 1f)
+            setOnClickListener {
+                val s3Folder = etS3Folder.text.toString().trim()
+                if (s3Folder.isEmpty()) {
+                    showToast("Please enter an S3 folder name")
+                    return@setOnClickListener
+                }
+                showToast("Creating remote S3 folder ($s3Folder)...")
+                com.dji.recreate2.aws.S3UploadManager.createRemoteFolder(this@MainActivity, s3Folder,
+                    onSuccess = { showToast("Successfully created S3 folder: $s3Folder") },
+                    onError = { err -> showToast("S3 folder error: $err") }
+                )
+            }
+        }
+        btnRow1.addView(btnCreateRemote)
+
+        val btnRow2 = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+        }
+
+        val btnSyncS3 = Button(this).apply {
+            text = "FETCH & SYNC S3"
+            setTextColor(android.graphics.Color.parseColor("#00FF66"))
+            setBackgroundResource(R.drawable.bg_btn_outline_green)
+            textSize = 11f
+            layoutParams = LinearLayout.LayoutParams(0, dp(40), 1f).apply { marginEnd = dp(6) }
+            setOnClickListener {
+                val localFolder = etLocal.text.toString().trim()
+                val s3Folder = etS3Folder.text.toString().trim()
+                if (localFolder.isNotEmpty()) {
+                    com.dji.recreate2.sync.PostFlightS3Sync.saveLocalFetchFolderName(this@MainActivity, localFolder)
+                }
+                if (s3Folder.isNotEmpty()) {
+                    com.dji.recreate2.aws.S3UploadManager.saveFolderConfig(this@MainActivity, com.dji.recreate2.aws.S3UploadManager.FOLDER_MODE_CUSTOM, s3Folder)
+                }
+                dialog.dismiss()
+                showToast("Fetching Media & Syncing to Ceph S3...")
+                com.dji.recreate2.sync.PostFlightS3Sync.startSync(this@MainActivity)
+            }
+        }
+
+        val btnLocalOnly = Button(this).apply {
+            text = "LOCAL ONLY"
+            setTextColor(android.graphics.Color.WHITE)
+            setBackgroundResource(R.drawable.bg_glass_btn)
+            textSize = 11f
+            layoutParams = LinearLayout.LayoutParams(0, dp(40), 1f)
+            setOnClickListener {
+                val localFolder = etLocal.text.toString().trim()
+                if (localFolder.isNotEmpty()) {
+                    com.dji.recreate2.sync.PostFlightS3Sync.saveLocalFetchFolderName(this@MainActivity, localFolder)
+                }
+                dialog.dismiss()
+                showToast("Fetching Media to Local Folder ($localFolder)...")
+                com.dji.recreate2.sync.PostFlightS3Sync.startSync(this@MainActivity)
+            }
+        }
+
+        btnRow2.addView(btnSyncS3)
+        btnRow2.addView(btnLocalOnly)
+
+        btnContainer.addView(btnRow1)
+        btnContainer.addView(btnRow2)
+        layout.addView(btnContainer)
+
+        dialog.show()
     }
 
     private fun showWebOdmConfigDialog() {
@@ -1844,17 +2209,25 @@ class MainActivity : AppCompatActivity() {
                 publishCommandReceipt(transactionId, "EXECUTE_MISSION", "FAILED", errorCode = -13, errorMessage = "Battery Too Low (< 20%)")
                 return
             }
-            if (gps < 10) {
-                showToast("PRE-FLIGHT FAILED: Weak GPS Signal (< 10 Sats)")
-                publishCommandReceipt(transactionId, "EXECUTE_MISSION", "FAILED", errorCode = -14, errorMessage = "Weak GPS Signal (< 10 Sats)")
-                return
+
+            val isGpsDeniedMode = com.dji.recreate2.flight.ConfinedSpaceFlightManager.isGpsDeniedModeEnabled
+            if (!isGpsDeniedMode) {
+                if (gps < 10) {
+                    showToast("PRE-FLIGHT FAILED: Weak GPS Signal (< 10 Sats)")
+                    publishCommandReceipt(transactionId, "EXECUTE_MISSION", "FAILED", errorCode = -14, errorMessage = "Weak GPS Signal (< 10 Sats)")
+                    return
+                }
+                if (droneLat.isNaN() || droneLon.isNaN()) {
+                    showToast("PRE-FLIGHT FAILED: No Home Point / GPS Lock")
+                    publishCommandReceipt(transactionId, "EXECUTE_MISSION", "FAILED", errorCode = -15, errorMessage = "No Home Point / GPS Lock")
+                    return
+                }
+            } else {
+                log("PRE-FLIGHT: GPS check bypassed (GPS-Denied Indoor VPS Mode Active)")
+                showToast("PRE-FLIGHT: GPS Bypassed (Indoor VPS Mode Active)")
             }
-            if (droneLat.isNaN() || droneLon.isNaN()) {
-                showToast("PRE-FLIGHT FAILED: No Home Point / GPS Lock")
-                publishCommandReceipt(transactionId, "EXECUTE_MISSION", "FAILED", errorCode = -15, errorMessage = "No Home Point / GPS Lock")
-                return
-            }
-            log("Pre-flight checks passed. Battery: $batt%, Satellites: $gps")
+
+            log("Pre-flight checks passed. Battery: $batt%, Satellites: $gps (GPS-Denied: $isGpsDeniedMode)")
             publishCommandReceipt(transactionId, "EXECUTE_MISSION", "EXECUTING")
         } catch (e: Exception) {
             log("Pre-flight check failed: ${e.message}")
@@ -1909,15 +2282,13 @@ class MainActivity : AppCompatActivity() {
         vs.enableVirtualStick(object : dji.v5.common.callback.CommonCallbacks.CompletionCallback {
             override fun onSuccess() {
                 vs.setVirtualStickAdvancedModeEnabled(true)
-                val param = dji.sdk.keyvalue.value.flightcontroller.VirtualStickFlightControlParam()
-                param.rollPitchCoordinateSystem = dji.sdk.keyvalue.value.flightcontroller.FlightCoordinateSystem.GROUND
+                val param = com.dji.recreate2.flight.ConfinedSpaceFlightManager.createVirtualStickParam()
                 vs.sendVirtualStickAdvancedParam(param)
                 
                 isMissionExecuting = true
                 
                 Thread({ // M-02: named thread for crash log readability
-                    val threadParam = dji.sdk.keyvalue.value.flightcontroller.VirtualStickFlightControlParam()
-                    threadParam.rollPitchCoordinateSystem = dji.sdk.keyvalue.value.flightcontroller.FlightCoordinateSystem.GROUND
+                    val threadParam = com.dji.recreate2.flight.ConfinedSpaceFlightManager.createVirtualStickParam()
                     var activePoiTarget: GeoPoint? = null
                     var cameraLockActive = false
                     var lastGimbalUpdate = 0L
@@ -2309,6 +2680,68 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun capturePhoto() {
+        // ISR Mode 1: PixelCopy FPV frame → S3 + also shoot full-res photo to drone SD card
+        if (com.dji.recreate2.sync.ISRModeManager.currentMode == "MODE1") {
+            log("ISR Mode 1 — IMG pressed: FPV PixelCopy → S3 + drone shoot → SD")
+            showToast("ISR: Capturing → S3…")
+
+            // Mark position on map
+            if (!droneLat.isNaN() && !droneLon.isNaN()) {
+                runOnUiThread { addImageCaptureMarker(org.osmdroid.util.GeoPoint(droneLat, droneLon)) }
+            }
+
+            // Also trigger drone's built-in camera → full-res saved to SD card
+            setCameraMode(dji.sdk.keyvalue.value.camera.CameraMode.PHOTO_NORMAL) {
+                val shootKey = KeyTools.createKey(CameraKey.KeyStartShootPhoto, ComponentIndexType.LEFT_OR_MAIN)
+                KeyManager.getInstance().performAction(shootKey, object : CommonCallbacks.CompletionCallbackWithParam<dji.sdk.keyvalue.value.common.EmptyMsg> {
+                    override fun onSuccess(t: dji.sdk.keyvalue.value.common.EmptyMsg?) { log("ISR: full-res photo saved to drone SD") }
+                    override fun onFailure(error: IDJIError) { log("ISR: drone shoot failed (SD only): ${error.errorCode()}") }
+                })
+            }
+
+            // PixelCopy FPV surface → JPEG → S3 (immediate, no MediaFile pipeline)
+            val w = fpvSurface.width
+            val h = fpvSurface.height
+            if (w <= 0 || h <= 0) {
+                showToast("ISR: No FPV feed — is drone streaming?")
+                return
+            }
+            val bmp = android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888)
+            android.view.PixelCopy.request(fpvSurface, bmp, { result ->
+                if (result == android.view.PixelCopy.SUCCESS) {
+                    val dateFolder = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())
+                    val fileName   = "isr_cam_${System.currentTimeMillis()}.jpg"
+                    val cacheFile  = java.io.File(cacheDir, fileName)
+                    Thread {
+                        try {
+                            cacheFile.outputStream().use { bmp.compress(android.graphics.Bitmap.CompressFormat.JPEG, 95, it) }
+                            injectExifMetadata(cacheFile)
+                            com.dji.recreate2.aws.S3UploadManager.uploadFile(
+                                context        = this,
+                                localFile      = cacheFile,
+                                remoteFolder   = dateFolder,
+                                remoteFileName = fileName,
+                                onSuccess = {
+                                    runOnUiThread { showToast("ISR ✔ $fileName → S3") }
+                                    log("ISR upload OK → $dateFolder/$fileName")
+                                    cacheFile.delete()
+                                },
+                                onError = { err ->
+                                    runOnUiThread { showToast("ISR ✗ Upload failed: $err") }
+                                    log("ISR upload error: $err")
+                                    cacheFile.delete()
+                                }
+                            )
+                        } catch (e: Exception) { log("ISR save error: ${e.message}") }
+                    }.start()
+                } else {
+                    runOnUiThread { showToast("ISR ✗ Capture failed (code $result)") }
+                }
+            }, android.os.Handler(android.os.Looper.getMainLooper()))
+            return
+        }
+
+        // Normal capture (ISR off)
         log("Switching to Photo Mode...")
         setCameraMode(dji.sdk.keyvalue.value.camera.CameraMode.PHOTO_NORMAL) {
             val action = KeyTools.createKey(CameraKey.KeyStartShootPhoto, ComponentIndexType.LEFT_OR_MAIN)
@@ -2316,11 +2749,8 @@ class MainActivity : AppCompatActivity() {
                 override fun onSuccess(t: dji.sdk.keyvalue.value.common.EmptyMsg?) {
                     log("Photo Captured!")
                     showToast("Photo Captured")
-                    
                     if (!droneLat.isNaN() && !droneLon.isNaN()) {
-                        runOnUiThread {
-                            addImageCaptureMarker(org.osmdroid.util.GeoPoint(droneLat, droneLon))
-                        }
+                        runOnUiThread { addImageCaptureMarker(org.osmdroid.util.GeoPoint(droneLat, droneLon)) }
                     }
                 }
                 override fun onFailure(error: IDJIError) {
@@ -2330,6 +2760,7 @@ class MainActivity : AppCompatActivity() {
             })
         }
     }
+
     
     private fun captureQuickScreenshot() {
         if (droneLat.isNaN() || droneLon.isNaN()) {
@@ -2405,6 +2836,68 @@ class MainActivity : AppCompatActivity() {
             }
         }
     }
+
+    /**
+     * Injects standard GPS, Altitude, Timestamp, and Drone Telemetry EXIF tags into JPEG files
+     * for photogrammetry, mapping software (WebODM, Pix4D, QGIS), and GIS pipelines.
+     */
+    private fun injectExifMetadata(file: File) {
+        if (!file.exists() || droneLat.isNaN() || droneLon.isNaN()) return
+        try {
+            val exif = androidx.exifinterface.media.ExifInterface(file.absolutePath)
+
+            // Latitude N/S
+            val latRef = if (droneLat < 0) "S" else "N"
+            val latAbs = Math.abs(droneLat)
+            val latDeg = latAbs.toInt()
+            val latMin = ((latAbs - latDeg) * 60).toInt()
+            val latSec = (latAbs - latDeg - latMin / 60.0) * 3600.0
+            exif.setAttribute(
+                androidx.exifinterface.media.ExifInterface.TAG_GPS_LATITUDE,
+                "$latDeg/1,$latMin/1,${(latSec * 1000).toInt()}/1000"
+            )
+            exif.setAttribute(androidx.exifinterface.media.ExifInterface.TAG_GPS_LATITUDE_REF, latRef)
+
+            // Longitude E/W
+            val lonRef = if (droneLon < 0) "W" else "E"
+            val lonAbs = Math.abs(droneLon)
+            val lonDeg = lonAbs.toInt()
+            val lonMin = ((lonAbs - lonDeg) * 60).toInt()
+            val lonSec = (lonAbs - lonDeg - lonMin / 60.0) * 3600.0
+            exif.setAttribute(
+                androidx.exifinterface.media.ExifInterface.TAG_GPS_LONGITUDE,
+                "$lonDeg/1,$lonMin/1,${(lonSec * 1000).toInt()}/1000"
+            )
+            exif.setAttribute(androidx.exifinterface.media.ExifInterface.TAG_GPS_LONGITUDE_REF, lonRef)
+
+            // Altitude
+            val altAbs = Math.abs(droneAlt)
+            exif.setAttribute(
+                androidx.exifinterface.media.ExifInterface.TAG_GPS_ALTITUDE,
+                "${(altAbs * 1000).toInt()}/1000"
+            )
+            exif.setAttribute(
+                androidx.exifinterface.media.ExifInterface.TAG_GPS_ALTITUDE_REF,
+                if (droneAlt < 0) "1" else "0"
+            )
+
+            // Timestamp
+            val nowStr = java.text.SimpleDateFormat("yyyy:MM:dd HH:mm:ss", java.util.Locale.US).format(java.util.Date())
+            exif.setAttribute(androidx.exifinterface.media.ExifInterface.TAG_DATETIME, nowStr)
+            exif.setAttribute(androidx.exifinterface.media.ExifInterface.TAG_DATETIME_ORIGINAL, nowStr)
+
+            // Mapping & Telemetry tags (WebODM, Pix4D, ArcGIS compatible)
+            exif.setAttribute(
+                androidx.exifinterface.media.ExifInterface.TAG_USER_COMMENT,
+                "DroneLat=$droneLat,DroneLon=$droneLon,DroneAlt=$droneAlt,Yaw=$droneYaw,GimbalPitch=$gimbalPitch"
+            )
+
+            exif.saveAttributes()
+            log("EXIF Mapping Metadata injected into ${file.name}: Lat=$droneLat, Lon=$droneLon, Alt=$droneAlt, Yaw=$droneYaw")
+        } catch (e: Exception) {
+            log("Failed to inject EXIF metadata: ${e.message}")
+        }
+    }
     
     private fun addImageCaptureMarker(geoPoint: org.osmdroid.util.GeoPoint) {
         val marker = org.osmdroid.views.overlay.Marker(mapView)
@@ -2437,16 +2930,67 @@ class MainActivity : AppCompatActivity() {
     private fun toggleRecord() {
         val btnRecord = findViewById<TextView>(R.id.btnRecord)
         if (isRecording) {
+            // Stop recording
             val action = KeyTools.createKey(CameraKey.KeyStopRecord, ComponentIndexType.LEFT_OR_MAIN)
             KeyManager.getInstance().performAction(action, object : CommonCallbacks.CompletionCallbackWithParam<dji.sdk.keyvalue.value.common.EmptyMsg> {
                 override fun onSuccess(t: dji.sdk.keyvalue.value.common.EmptyMsg?) {
                     isRecording = false
-                    runOnUiThread { 
-                        btnRecord.text = "REC" 
+                    runOnUiThread {
+                        btnRecord.text = "REC"
                         btnRecord.setTextColor(android.graphics.Color.GREEN)
                     }
                     log("Recording Stopped")
                     showToast("Recording Stopped")
+
+                    // ISR Mode 1: Stop raw FPV video recorder and upload clean MP4 + companion SRT to S3
+                    if (com.dji.recreate2.sync.ISRModeManager.currentMode == "MODE1") {
+                        val (recordedMp4, recordedSrt) = com.dji.recreate2.sync.FpvStreamRecorder.stopRecording()
+                        if (recordedMp4 != null && recordedMp4.exists() && recordedMp4.length() > 0) {
+                            val dateFolder = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())
+                            val videoName = recordedMp4.name
+                            log("ISR Mode 1: Raw FPV video recorded (${recordedMp4.length()} bytes) -> uploading MP4 + SRT to S3...")
+                            showToast("ISR Mode 1: Uploading Video & SRT → S3…")
+
+                            // Upload MP4 Video
+                            com.dji.recreate2.aws.S3UploadManager.uploadFile(
+                                context = this@MainActivity,
+                                localFile = recordedMp4,
+                                remoteFolder = dateFolder,
+                                remoteFileName = videoName,
+                                onSuccess = {
+                                    runOnUiThread { showToast("ISR ✔ Video Uploaded: $videoName") }
+                                    log("ISR Mode 1 raw video upload OK -> $dateFolder/$videoName")
+                                    recordedMp4.delete()
+                                },
+                                onError = { err ->
+                                    runOnUiThread { showToast("ISR ✗ Video upload failed: $err") }
+                                    log("ISR Mode 1 raw video upload error: $err")
+                                }
+                            )
+
+                            // Upload companion .SRT Subtitle File
+                            if (recordedSrt != null && recordedSrt.exists() && recordedSrt.length() > 0) {
+                                val srtName = recordedSrt.name
+                                com.dji.recreate2.aws.S3UploadManager.uploadFile(
+                                    context = this@MainActivity,
+                                    localFile = recordedSrt,
+                                    remoteFolder = dateFolder,
+                                    remoteFileName = srtName,
+                                    onSuccess = {
+                                        log("ISR Mode 1 companion SRT upload OK -> $dateFolder/$srtName")
+                                        recordedSrt.delete()
+                                    },
+                                    onError = { err ->
+                                        log("ISR Mode 1 SRT upload error: $err")
+                                    }
+                                )
+                            }
+                        } else {
+                            // Fallback to camera SD card video fetch if tablet recorder produced no file
+                            log("ISR Mode 1: Tablet FPV recorder empty, falling back to drone storage fetch...")
+                            com.dji.recreate2.sync.ISRModeManager.triggerMode1VideoUpload(this@MainActivity)
+                        }
+                    }
                 }
                 override fun onFailure(error: IDJIError) {
                     log("Stop Record Failed")
@@ -2459,12 +3003,35 @@ class MainActivity : AppCompatActivity() {
                 KeyManager.getInstance().performAction(action, object : CommonCallbacks.CompletionCallbackWithParam<dji.sdk.keyvalue.value.common.EmptyMsg> {
                     override fun onSuccess(t: dji.sdk.keyvalue.value.common.EmptyMsg?) {
                         isRecording = true
-                        runOnUiThread { 
-                            btnRecord.text = "REC" 
+                        runOnUiThread {
+                            btnRecord.text = "REC"
                             btnRecord.setTextColor(android.graphics.Color.RED)
                         }
                         log("Recording Started")
                         showToast("Recording Started")
+
+                        // ISR Mode 1: Start raw FPV video recorder on tablet with 1s telemetry logging for .SRT
+                        if (com.dji.recreate2.sync.ISRModeManager.currentMode == "MODE1") {
+                            log("ISR Mode 1: Starting raw FPV stream video recorder + SRT telemetry logger...")
+                            com.dji.recreate2.sync.FpvStreamRecorder.startRecording(
+                                surfaceView = fpvSurface,
+                                context = this@MainActivity,
+                                fps = 20,
+                                telemetryProvider = {
+                                    com.dji.recreate2.sync.FpvStreamRecorder.TelemetrySample(
+                                        timestampMs = System.currentTimeMillis(),
+                                        lat = droneLat,
+                                        lon = droneLon,
+                                        alt = droneAlt,
+                                        speed = droneSpeed,
+                                        yaw = droneYaw,
+                                        gimbalPitch = gimbalPitch,
+                                        sats = droneSatellites,
+                                        battery = droneBattery
+                                    )
+                                }
+                            )
+                        }
                     }
                     override fun onFailure(error: IDJIError) {
                         log("Start Record Failed: ${error.errorCode()}")
@@ -3070,7 +3637,8 @@ class MainActivity : AppCompatActivity() {
         val steps = 72
         val circlePts = ArrayList<GeoPoint>(steps + 1)
         val latOffset = radiusMeters / 111320.0
-        val lonOffset = radiusMeters / (111320.0 * Math.cos(Math.toRadians(center.latitude)))
+        val cosLat = Math.max(0.0001, Math.abs(Math.cos(Math.toRadians(center.latitude))))
+        val lonOffset = radiusMeters / (111320.0 * cosLat)
         for (i in 0..steps) {
             val angle = Math.toRadians((i * 360.0 / steps))
             circlePts.add(GeoPoint(
@@ -3240,6 +3808,21 @@ class MainActivity : AppCompatActivity() {
                         gimbalObj.put("roll", gimbalRoll)
                         gimbalObj.put("yaw", gimbalYaw)
                         payload.put("gimbal", gimbalObj)
+
+                        val activeTask = com.dji.recreate2.task.DroneTaskManager.activeTask
+                        if (activeTask != null) {
+                            payload.put("taskId", activeTask.taskId)
+                            payload.put("taskName", activeTask.taskName)
+                            payload.put("taskStatus", activeTask.status)
+                            payload.put("queuedTasksCount", com.dji.recreate2.task.DroneTaskManager.queuedCount)
+                        } else {
+                            payload.put("taskId", org.json.JSONObject.NULL)
+                            payload.put("queuedTasksCount", com.dji.recreate2.task.DroneTaskManager.queuedCount)
+                        }
+
+                        payload.put("gpsDeniedMode", com.dji.recreate2.flight.ConfinedSpaceFlightManager.isGpsDeniedModeEnabled)
+                        payload.put("confinedSpaceMode", com.dji.recreate2.flight.ConfinedSpaceFlightManager.isConfinedSpaceModeEnabled)
+                        payload.put("obstacleBrakeDistanceMeters", com.dji.recreate2.flight.ConfinedSpaceFlightManager.obstacleBrakeDistanceMeters)
                         
                         mqttService.updateDroneId(currentDroneId)
                         mqttService.publishTelemetry(jsonPayload = payload.toString())
@@ -3800,6 +4383,83 @@ class MainActivity : AppCompatActivity() {
         })
     }
 
+    private fun resetZoom() {
+        log("Resetting camera zoom ratio to 1.0x...")
+        currentZoomRatio = 1.0
+        val zoomKey = KeyTools.createCameraKey(CameraKey.KeyCameraZoomRatios, ComponentIndexType.LEFT_OR_MAIN, CameraLensType.CAMERA_LENS_ZOOM)
+        KeyManager.getInstance().setValue(zoomKey, 1.0, object : CommonCallbacks.CompletionCallback {
+            override fun onSuccess() {
+                runOnUiThread { showToast("Camera Zoom Reset to 1.0x") }
+                log("Camera Zoom Reset to 1.0x successfully.")
+            }
+            override fun onFailure(error: IDJIError) {
+                // Fallback attempt without specifying lens type
+                val zoomKey2 = KeyTools.createKey(CameraKey.KeyCameraZoomRatios)
+                KeyManager.getInstance().setValue(zoomKey2, 1.0, object : CommonCallbacks.CompletionCallback {
+                    override fun onSuccess() {
+                        runOnUiThread { showToast("Camera Zoom Reset to 1.0x") }
+                        log("Camera Zoom Reset to 1.0x successfully.")
+                    }
+                    override fun onFailure(err2: IDJIError) {
+                        runOnUiThread { showToast("Reset Zoom Failed: ${error.errorCode()}") }
+                        log("Reset Zoom Failed: ${error.errorCode()} / ${err2.errorCode()}")
+                    }
+                })
+            }
+        })
+    }
+
+    private fun triggerTapToFocus(normX: Double, normY: Double, screenX: Float = -1f, screenY: Float = -1f) {
+        val focusModeKey = KeyTools.createCameraKey(CameraKey.KeyCameraFocusMode, ComponentIndexType.LEFT_OR_MAIN, CameraLensType.CAMERA_LENS_ZOOM)
+        KeyManager.getInstance().setValue(focusModeKey, dji.sdk.keyvalue.value.camera.CameraFocusMode.AF, null)
+
+        val targetKey = KeyTools.createCameraKey(CameraKey.KeyCameraFocusTarget, ComponentIndexType.LEFT_OR_MAIN, CameraLensType.CAMERA_LENS_ZOOM)
+        KeyManager.getInstance().setValue(targetKey, dji.sdk.keyvalue.value.common.DoublePoint2D(normX, normY), null)
+
+        runOnUiThread {
+            val focusReticle = findViewById<android.widget.ImageView>(R.id.focusReticle)
+            if (focusReticle != null && fpvSurface.width > 0) {
+                val posX = if (screenX >= 0) screenX else (normX * fpvSurface.width).toFloat()
+                val posY = if (screenY >= 0) screenY else (normY * fpvSurface.height).toFloat()
+
+                focusReticle.visibility = View.VISIBLE
+                focusReticle.alpha = 1f
+                focusReticle.translationX = posX - (focusReticle.width / 2f)
+                focusReticle.translationY = posY - (focusReticle.height / 2f)
+                focusReticle.scaleX = 1.5f
+                focusReticle.scaleY = 1.5f
+                focusReticle.animate()
+                    .scaleX(1.0f)
+                    .scaleY(1.0f)
+                    .setDuration(300)
+                    .withEndAction {
+                        focusReticle.postDelayed({
+                            focusReticle.animate().alpha(0f).setDuration(300).withEndAction {
+                                focusReticle.visibility = View.GONE
+                                focusReticle.alpha = 1f
+                            }.start()
+                        }, 2000)
+                    }
+                    .start()
+            }
+            showToast("Focusing at ${String.format(java.util.Locale.US, "%.2f", normX)}, ${String.format(java.util.Locale.US, "%.2f", normY)}")
+        }
+    }
+
+    private fun triggerContinuousAutoFocus() {
+        val focusModeKey = KeyTools.createCameraKey(CameraKey.KeyCameraFocusMode, ComponentIndexType.LEFT_OR_MAIN, CameraLensType.CAMERA_LENS_ZOOM)
+        KeyManager.getInstance().setValue(focusModeKey, dji.sdk.keyvalue.value.camera.CameraFocusMode.AF, object : CommonCallbacks.CompletionCallback {
+            override fun onSuccess() {
+                runOnUiThread { showToast("Continuous Auto Focus Enabled") }
+                log("Continuous Auto Focus Enabled")
+            }
+            override fun onFailure(error: IDJIError) {
+                runOnUiThread { showToast("Auto Focus Failed: ${error.errorCode()}") }
+                log("Auto Focus Failed: ${error.errorCode()}")
+            }
+        })
+    }
+
     private fun setupGimbalInteraction() {
         var isVirtualStickEnabledLocally = false
         val zoomKey = KeyTools.createCameraKey(CameraKey.KeyCameraZoomRatios, ComponentIndexType.LEFT_OR_MAIN, CameraLensType.CAMERA_LENS_ZOOM)
@@ -3826,40 +4486,12 @@ class MainActivity : AppCompatActivity() {
                     runOnUiThread { findViewById<View>(R.id.btnModeFly).performClick() }
                     return true
                 }
-                if (currentTouchAction == TouchAction.FOCUS) {
-                    val x = e.x / fpvSurface.width.toDouble()
-                    val y = e.y / fpvSurface.height.toDouble()
-                    
-                    val focusModeKey = KeyTools.createCameraKey(CameraKey.KeyCameraFocusMode, ComponentIndexType.LEFT_OR_MAIN, CameraLensType.CAMERA_LENS_ZOOM)
-                    KeyManager.getInstance().setValue(focusModeKey, dji.sdk.keyvalue.value.camera.CameraFocusMode.AF, null)
-
-                    val targetKey = KeyTools.createCameraKey(CameraKey.KeyCameraFocusTarget, ComponentIndexType.LEFT_OR_MAIN, CameraLensType.CAMERA_LENS_ZOOM)
-                    KeyManager.getInstance().setValue(targetKey, dji.sdk.keyvalue.value.common.DoublePoint2D(x, y), null)
-                    
-                    val focusReticle = findViewById<android.widget.ImageView>(R.id.focusReticle)
-                    focusReticle?.visibility = View.VISIBLE
-                    focusReticle?.alpha = 1f
-                    focusReticle?.translationX = e.x - ((focusReticle?.width ?: 0) / 2)
-                    focusReticle?.translationY = e.y - ((focusReticle?.height ?: 0) / 2)
-                    focusReticle?.scaleX = 1.5f
-                    focusReticle?.scaleY = 1.5f
-                    focusReticle?.animate()
-                        ?.scaleX(1.0f)
-                        ?.scaleY(1.0f)
-                        ?.setDuration(300)
-                        ?.withEndAction {
-                            focusReticle.postDelayed({
-                                focusReticle.animate().alpha(0f).setDuration(300).withEndAction {
-                                    focusReticle.visibility = View.GONE
-                                    focusReticle.alpha = 1f
-                                }.start()
-                            }, 2000)
-                        }
-                        ?.start()
-                    
-                    showToast("Focusing at ${String.format("%.2f", x)}, ${String.format("%.2f", y)}")
-                    return true
-                }
+                // Tap anywhere on FPV stream feed -> Tap-to-Focus & Auto Focus
+                val normX = (e.x / fpvSurface.width.toDouble()).coerceIn(0.0, 1.0)
+                val normY = (e.y / fpvSurface.height.toDouble()).coerceIn(0.0, 1.0)
+                
+                triggerTapToFocus(normX, normY, e.x, e.y)
+                return true
                 return false
             }
 
@@ -3964,31 +4596,40 @@ class MainActivity : AppCompatActivity() {
         
         val tabInfo = dialog.findViewById<TextView>(R.id.tabInfo)
         val tabCfg = dialog.findViewById<TextView>(R.id.tabCfg)
+        val tabIsr = dialog.findViewById<TextView>(R.id.tabIsr)
         val tabLog = dialog.findViewById<TextView>(R.id.tabLog)
-        
+
         val layoutInfo = dialog.findViewById<View>(R.id.layoutInfo)
         val layoutCfg = dialog.findViewById<View>(R.id.layoutCfg)
+        val layoutIsr = dialog.findViewById<View>(R.id.layoutIsr)
         val layoutLog = dialog.findViewById<View>(R.id.layoutLog)
-        
+
+        val GREEN_ACTIVE = android.graphics.Color.parseColor("#00FF66")
+        val GREEN_DIM    = android.graphics.Color.parseColor("#33FFFFFF")
+        val TRANSPARENT  = android.graphics.Color.TRANSPARENT
+
         fun updateTabs(active: Int) {
-            tabInfo.setBackgroundColor(if (active == 0) android.graphics.Color.parseColor("#00FF00") else android.graphics.Color.parseColor("#2200FF00"))
-            tabInfo.setTextColor(if (active == 0) android.graphics.Color.BLACK else android.graphics.Color.parseColor("#00FF00"))
-            
-            tabCfg.setBackgroundColor(if (active == 1) android.graphics.Color.parseColor("#00FF00") else android.graphics.Color.parseColor("#2200FF00"))
-            tabCfg.setTextColor(if (active == 1) android.graphics.Color.BLACK else android.graphics.Color.parseColor("#00FF00"))
-            
-            tabLog.setBackgroundColor(if (active == 2) android.graphics.Color.parseColor("#00FF00") else android.graphics.Color.parseColor("#2200FF00"))
-            tabLog.setTextColor(if (active == 2) android.graphics.Color.BLACK else android.graphics.Color.parseColor("#00FF00"))
-            
+            // Reset all tabs to inactive style
+            for ((tab, idx) in listOf(tabInfo to 0, tabCfg to 1, tabIsr to 2, tabLog to 3)) {
+                if (active == idx) {
+                    tab.setBackgroundResource(R.drawable.bg_glass_btn_active)
+                    tab.setTextColor(android.graphics.Color.WHITE)
+                } else {
+                    tab.setBackgroundColor(TRANSPARENT)
+                    tab.setTextColor(GREEN_DIM)
+                }
+            }
             layoutInfo.visibility = if (active == 0) View.VISIBLE else View.GONE
-            layoutCfg.visibility = if (active == 1) View.VISIBLE else View.GONE
-            layoutLog.visibility = if (active == 2) View.VISIBLE else View.GONE
+            layoutCfg.visibility  = if (active == 1) View.VISIBLE else View.GONE
+            layoutIsr.visibility  = if (active == 2) View.VISIBLE else View.GONE
+            layoutLog.visibility  = if (active == 3) View.VISIBLE else View.GONE
         }
-        
+
         tabInfo.setOnClickListener { updateTabs(0) }
-        tabCfg.setOnClickListener { updateTabs(1) }
-        tabLog.setOnClickListener { updateTabs(2) }
-        
+        tabCfg.setOnClickListener  { updateTabs(1) }
+        tabIsr.setOnClickListener  { updateTabs(2) }
+        tabLog.setOnClickListener  { updateTabs(3) }
+
         updateTabs(0)
         
         dTvDroneModel = dialog.findViewById(R.id.tvDroneModel)
@@ -4035,7 +4676,6 @@ class MainActivity : AppCompatActivity() {
         }
         
         val dBtnPair = dialog.findViewById<TextView>(R.id.btnPair)
-        val dBtnDownload = dialog.findViewById<TextView>(R.id.btnDownload)
         val dBtnGimbalSens = dialog.findViewById<TextView>(R.id.btnGimbalSens)
         val dBtnFlightSens = dialog.findViewById<TextView>(R.id.btnFlightSens)
         val dBtnInvertVertical = dialog.findViewById<TextView>(R.id.btnInvertVertical)
@@ -4076,21 +4716,483 @@ class MainActivity : AppCompatActivity() {
             stopRtmpStream()
         }
 
+        // ══════════════════════════════════════════════════════════
+        // ISR MODE TAB — S3 / CEPH STORAGE BINDS
+        // ══════════════════════════════════════════════════════════
+        val btnIsrMode1Toggle    = dialog.findViewById<android.widget.Button>(R.id.btnIsrMode1Toggle)
+        val btnIsrMode2Toggle    = dialog.findViewById<android.widget.Button>(R.id.btnIsrMode2Toggle)
+        val btnIsrMode1CaptureNow = dialog.findViewById<android.widget.Button>(R.id.btnIsrMode1CaptureNow)
+        val tvIsrStatus          = dialog.findViewById<TextView>(R.id.tvIsrStatus)
+        val tvMode1LastCapture   = dialog.findViewById<TextView>(R.id.tvMode1LastCapture)
+        val tvIsrUploadStatus    = dialog.findViewById<TextView>(R.id.tvIsrUploadStatus)
+        val pbIsrUpload          = dialog.findViewById<android.widget.ProgressBar>(R.id.pbIsrUpload)
+
+        val etS3ServerUrl     = dialog.findViewById<android.widget.EditText>(R.id.etS3ServerUrl)
+        val etS3AccessKey     = dialog.findViewById<android.widget.EditText>(R.id.etS3AccessKey)
+        val etS3SecretKey     = dialog.findViewById<android.widget.EditText>(R.id.etS3SecretKey)
+        val etS3Region        = dialog.findViewById<android.widget.EditText>(R.id.etS3Region)
+        val btnS3FolderModeToggle = dialog.findViewById<android.widget.Button>(R.id.btnS3FolderModeToggle)
+        val etS3CustomFolder  = dialog.findViewById<android.widget.EditText>(R.id.etS3CustomFolder)
+        val etLocalFetchFolder = dialog.findViewById<android.widget.EditText>(R.id.etLocalFetchFolder)
+        val btnSaveS3Config   = dialog.findViewById<android.widget.Button>(R.id.btnSaveS3Config)
+        val btnCreateS3Folder = dialog.findViewById<android.widget.Button>(R.id.btnCreateS3Folder)
+        val btnConnectCeph    = dialog.findViewById<android.widget.Button>(R.id.btnConnectCeph)
+        val etLocalFolderPath = dialog.findViewById<android.widget.EditText>(R.id.etLocalFolderPath)
+        val btnPickLocalFolder = dialog.findViewById<android.widget.Button>(R.id.btnPickLocalFolder)
+
+        // Populate fields from saved config
+        etS3ServerUrl?.setText(com.dji.recreate2.aws.S3UploadManager.getS3ServerUrl(this))
+        etS3AccessKey?.setText(com.dji.recreate2.aws.S3UploadManager.getAccessKey(this))
+        etS3SecretKey?.setText(com.dji.recreate2.aws.S3UploadManager.getSecretKey(this))
+        etS3Region?.setText(com.dji.recreate2.aws.S3UploadManager.getRegion(this))
+        etS3CustomFolder?.setText(com.dji.recreate2.aws.S3UploadManager.getCustomFolderName(this))
+        etLocalFetchFolder?.setText(com.dji.recreate2.sync.PostFlightS3Sync.getLocalFetchFolderName(this))
+        // Restore saved local folder path
+        val prefs = getSharedPreferences("TacticalHUDConfig", android.content.Context.MODE_PRIVATE)
+        etLocalFolderPath?.setText(prefs.getString("isrLocalFolderPath", ""))
+
+        // --- ISR Mode 1 & 2 Toggle + Status Banner ---
+        fun refreshIsrStatusBanner() {
+            val m1On = com.dji.recreate2.sync.ISRModeManager.currentMode == "MODE1"
+            val m2On = com.dji.recreate2.sync.ISRModeManager.currentMode == "MODE2"
+            val m1Dot = if (m1On) "\u25CF" else "\u25CB"
+            val m2Dot = if (m2On) "\u25CF" else "\u25CB"
+            val m1Color = if (m1On) android.graphics.Color.parseColor("#00FF66") else android.graphics.Color.parseColor("#AAAAAA")
+            val m2Color = if (m2On) android.graphics.Color.parseColor("#00FF66") else android.graphics.Color.parseColor("#AAAAAA")
+            tvIsrStatus?.text = "$m1Dot Mode 1: ${if (m1On) "ENABLED" else "DISABLED"}   $m2Dot Mode 2: ${if (m2On) "ENABLED" else "DISABLED"}"
+
+            // Mode 1 button
+            btnIsrMode1Toggle?.text = if (m1On) "MODE 1 (HUD CAPTURE): ENABLED ✓" else "MODE 1 (HUD CAPTURE): DISABLED"
+            btnIsrMode1Toggle?.setTextColor(if (m1On) android.graphics.Color.parseColor("#00FF66") else android.graphics.Color.parseColor("#AAAAAA"))
+            btnIsrMode1CaptureNow?.isEnabled = m1On
+            btnIsrMode1CaptureNow?.alpha = if (m1On) 1.0f else 0.4f
+
+            // Mode 2 button
+            btnIsrMode2Toggle?.text = if (m2On) "MODE 2 (AUTO SYNC ON LAND): ENABLED ✓" else "MODE 2 (AUTO SYNC ON LAND): DISABLED"
+            btnIsrMode2Toggle?.setTextColor(if (m2On) android.graphics.Color.parseColor("#00FF66") else android.graphics.Color.parseColor("#AAAAAA"))
+        }
+        refreshIsrStatusBanner()
+
+        // Hook Mode 2 SD Card live progress updates to system dialog UI
+        com.dji.recreate2.sync.PostFlightS3Sync.onSyncProgressUpdate = { statusStr, currItem, totalItems, pct ->
+            runOnUiThread {
+                tvIsrUploadStatus?.text = statusStr
+                if (pbIsrUpload != null) {
+                    pbIsrUpload.visibility = View.VISIBLE
+                    pbIsrUpload.progress = pct
+                    if (pct >= 100) {
+                        pbIsrUpload.postDelayed({ pbIsrUpload.visibility = View.GONE }, 3000)
+                    }
+                }
+            }
+        }
+
+        btnIsrMode1Toggle?.setOnClickListener {
+            val nextMode = if (com.dji.recreate2.sync.ISRModeManager.currentMode == "MODE1") "NONE" else "MODE1"
+            com.dji.recreate2.sync.ISRModeManager.setMode(nextMode, this)
+            refreshIsrStatusBanner()
+            showToast(if (nextMode == "MODE1") "ISR Mode 1 (HUD Capture): ENABLED" else "ISR Mode 1: DISABLED")
+        }
+
+        btnIsrMode2Toggle?.setOnClickListener {
+            val nextMode = if (com.dji.recreate2.sync.ISRModeManager.currentMode == "MODE2") "NONE" else "MODE2"
+            com.dji.recreate2.sync.ISRModeManager.setMode(nextMode, this)
+            refreshIsrStatusBanner()
+            showToast(if (nextMode == "MODE2") "ISR Mode 2 (Auto-Sync on Landing): ENABLED" else "ISR Mode 2: DISABLED")
+        }
+
+        val btnIsrMode2SyncNow = dialog.findViewById<android.widget.Button>(R.id.btnIsrMode2SyncNow)
+        btnIsrMode2SyncNow?.setOnClickListener {
+            log("Manual Mode 2 Sync Triggered")
+            showToast("ISR Mode 2: Starting manual sync from drone SD card...")
+            com.dji.recreate2.sync.PostFlightS3Sync.startSync(this)
+        }
+
+        // --- Reticle Target Box & Compass Tape Overlay Toggles for Mode 1 Record & Stream ---
+        val btnToggleReticleOverlay = dialog.findViewById<android.widget.Button>(R.id.btnToggleReticleOverlay)
+        val btnToggleCompassOverlay = dialog.findViewById<android.widget.Button>(R.id.btnToggleCompassOverlay)
+
+        fun refreshOverlayButtonUI() {
+            val rOn = com.dji.recreate2.sync.FpvStreamRecorder.isReticleOverlayEnabled
+            val cOn = com.dji.recreate2.sync.FpvStreamRecorder.isCompassOverlayEnabled
+            btnToggleReticleOverlay?.text = if (rOn) "RETICLE: ON ✓" else "RETICLE: OFF"
+            btnToggleReticleOverlay?.setTextColor(if (rOn) android.graphics.Color.parseColor("#00FF66") else android.graphics.Color.parseColor("#AAAAAA"))
+            btnToggleCompassOverlay?.text = if (cOn) "COMPASS: ON ✓" else "COMPASS: OFF"
+            btnToggleCompassOverlay?.setTextColor(if (cOn) android.graphics.Color.parseColor("#00FF66") else android.graphics.Color.parseColor("#AAAAAA"))
+        }
+        refreshOverlayButtonUI()
+
+        btnToggleReticleOverlay?.setOnClickListener {
+            val newState = !com.dji.recreate2.sync.FpvStreamRecorder.isReticleOverlayEnabled
+            com.dji.recreate2.sync.FpvStreamRecorder.isReticleOverlayEnabled = newState
+            refreshOverlayButtonUI()
+            showToast(if (newState) "Reticle Target Box Overlay: ENABLED" else "Reticle Target Box Overlay: DISABLED")
+        }
+
+        btnToggleCompassOverlay?.setOnClickListener {
+            val newState = !com.dji.recreate2.sync.FpvStreamRecorder.isCompassOverlayEnabled
+            com.dji.recreate2.sync.FpvStreamRecorder.isCompassOverlayEnabled = newState
+            refreshOverlayButtonUI()
+            showToast(if (newState) "Compass Tape Overlay: ENABLED" else "Compass Tape Overlay: DISABLED")
+        }
+
+        // Mode 1: Capture drone camera feed only (no HUD) and upload to S3
+        btnIsrMode1CaptureNow?.setOnClickListener {
+            val ts = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format(java.util.Date())
+            tvMode1LastCapture?.text = "Last: $ts"
+            tvIsrUploadStatus?.text = "Capturing drone camera feed…"
+            pbIsrUpload?.visibility = View.VISIBLE
+            pbIsrUpload?.progress = 10
+
+            val w = fpvSurface.width
+            val h = fpvSurface.height
+            if (w <= 0 || h <= 0) {
+                tvIsrUploadStatus?.text = "✗ No camera feed available"
+                pbIsrUpload?.visibility = View.GONE
+                showToast("ISR: No camera feed — connect drone first")
+                return@setOnClickListener
+            }
+
+            val bitmap = android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888)
+
+            // PixelCopy captures the raw SurfaceView texture — drone cam only, no HUD
+            android.view.PixelCopy.request(fpvSurface, bitmap, { result ->
+                if (result == android.view.PixelCopy.SUCCESS) {
+                    pbIsrUpload?.progress = 40
+
+                    val dateFolder  = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())
+                    val fileName    = "isr_cam_${System.currentTimeMillis()}.jpg"
+                    val cacheFile   = java.io.File(cacheDir, fileName)
+
+                    Thread {
+                        try {
+                            cacheFile.outputStream().use { out ->
+                                bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 95, out)
+                            }
+                            injectExifMetadata(cacheFile)
+                            runOnUiThread {
+                                tvIsrUploadStatus?.text = "Uploading to S3…"
+                                pbIsrUpload?.progress = 50
+                            }
+
+                            com.dji.recreate2.aws.S3UploadManager.uploadFile(
+                                context        = this,
+                                localFile      = cacheFile,
+                                remoteFolder   = dateFolder,
+                                remoteFileName = fileName,
+                                onProgress     = { pct ->
+                                    runOnUiThread {
+                                        pbIsrUpload?.progress = 50 + (pct * 0.5).toInt()
+                                        tvIsrUploadStatus?.text = "Uploading: $pct%"
+                                    }
+                                },
+                                onSuccess = {
+                                    runOnUiThread {
+                                        pbIsrUpload?.progress = 100
+                                        tvIsrUploadStatus?.text = "✔ Uploaded: $fileName"
+                                        pbIsrUpload?.postDelayed({ pbIsrUpload?.visibility = View.GONE }, 3000)
+                                        log("ISR cam capture uploaded: $fileName → $dateFolder/")
+                                    }
+                                    cacheFile.delete()
+                                },
+                                onError = { err ->
+                                    runOnUiThread {
+                                        pbIsrUpload?.visibility = View.GONE
+                                        tvIsrUploadStatus?.text = "✗ Upload failed: $err"
+                                    }
+                                    cacheFile.delete()
+                                }
+                            )
+                        } catch (e: Exception) {
+                            runOnUiThread {
+                                pbIsrUpload?.visibility = View.GONE
+                                tvIsrUploadStatus?.text = "✗ Save error: ${e.message}"
+                            }
+                        }
+                    }.start()
+                } else {
+                    runOnUiThread {
+                        pbIsrUpload?.visibility = View.GONE
+                        tvIsrUploadStatus?.text = "✗ PixelCopy failed (code $result)"
+                        showToast("ISR: Camera capture failed — is FPV active?")
+                    }
+                }
+            }, android.os.Handler(android.os.Looper.getMainLooper()))
+        }
+
+        // S3 Folder Mode Toggle
+        var currentS3FolderMode = com.dji.recreate2.aws.S3UploadManager.getFolderMode(this)
+        fun updateFolderModeUi() {
+            if (currentS3FolderMode == com.dji.recreate2.aws.S3UploadManager.FOLDER_MODE_CUSTOM) {
+                btnS3FolderModeToggle?.text = "FOLDER: CUSTOM"
+                etS3CustomFolder?.visibility = android.view.View.VISIBLE
+            } else {
+                btnS3FolderModeToggle?.text = "FOLDER: AUTO (DATE)"
+                etS3CustomFolder?.visibility = android.view.View.GONE
+            }
+        }
+        updateFolderModeUi()
+
+        btnS3FolderModeToggle?.setOnClickListener {
+            currentS3FolderMode = if (currentS3FolderMode == com.dji.recreate2.aws.S3UploadManager.FOLDER_MODE_AUTO) {
+                com.dji.recreate2.aws.S3UploadManager.FOLDER_MODE_CUSTOM
+            } else {
+                com.dji.recreate2.aws.S3UploadManager.FOLDER_MODE_AUTO
+            }
+            updateFolderModeUi()
+        }
+
+        btnSaveS3Config?.setOnClickListener {
+            val url          = etS3ServerUrl?.text.toString().trim()
+            val ak           = etS3AccessKey?.text.toString().trim()
+            val sk           = etS3SecretKey?.text.toString().trim()
+            val reg          = etS3Region?.text.toString().trim()
+            val customFolder = etS3CustomFolder?.text.toString().trim()
+            val localFolder  = etLocalFetchFolder?.text.toString().trim()
+
+            if (url.isNotEmpty()) com.dji.recreate2.aws.S3UploadManager.saveS3ServerUrl(this, url)
+            if (ak.isNotEmpty() && sk.isNotEmpty()) com.dji.recreate2.aws.S3UploadManager.saveCredentials(this, ak, sk, if (reg.isEmpty()) "BT" else reg)
+            com.dji.recreate2.aws.S3UploadManager.saveFolderConfig(this, currentS3FolderMode, customFolder)
+            if (localFolder.isNotEmpty()) com.dji.recreate2.sync.PostFlightS3Sync.saveLocalFetchFolderName(this, localFolder)
+
+            showToast("Ceph S3 & Local Storage Config Saved!")
+            log("ISR/S3 config saved. URL=$url folder_mode=$currentS3FolderMode")
+        }
+
+        btnCreateS3Folder?.setOnClickListener {
+            val customFolder = etS3CustomFolder?.text.toString().trim()
+            val folderToCreate = if (customFolder.isNotEmpty()) customFolder
+                else java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())
+            tvIsrUploadStatus?.text = "Creating folder: $folderToCreate..."
+            showToast("Creating remote S3 folder ($folderToCreate)...")
+            com.dji.recreate2.aws.S3UploadManager.createRemoteFolder(this, folderToCreate,
+                onSuccess = {
+                    runOnUiThread {
+                        tvIsrUploadStatus?.text = "\u2714 S3 folder created: $folderToCreate"
+                        showToast("Successfully created S3 folder: $folderToCreate")
+                    }
+                },
+                onError = { err ->
+                    runOnUiThread {
+                        tvIsrUploadStatus?.text = "\u2717 Folder create failed: $err"
+                        showToast("Failed to create S3 folder: $err")
+                    }
+                }
+            )
+        }
+
+        // ── S3 REMOTE FOLDER DROPDOWN (SPINNER) ──────────────────────────
+        val spinnerS3Folder         = dialog.findViewById<android.widget.Spinner>(R.id.spinnerS3Folder)
+        val btnRefreshS3Folders     = dialog.findViewById<android.widget.Button>(R.id.btnRefreshS3Folders)
+        val btnUseSelectedS3Folder  = dialog.findViewById<android.widget.Button>(R.id.btnUseSelectedS3Folder)
+
+        val folderList = mutableListOf<String>("\u23F3 Loading\u2026")
+        val folderAdapter = android.widget.ArrayAdapter(
+            this,
+            android.R.layout.simple_spinner_item,
+            folderList
+        ).also { it.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item) }
+        spinnerS3Folder?.adapter = folderAdapter
+
+        fun loadS3Folders() {
+            runOnUiThread {
+                folderList.clear()
+                folderList.add("\u23F3 Fetching folders\u2026")
+                folderAdapter.notifyDataSetChanged()
+                btnRefreshS3Folders?.isEnabled = false
+                tvIsrUploadStatus?.text = "Fetching S3 folder list\u2026"
+            }
+            com.dji.recreate2.aws.S3UploadManager.listRemoteFolders(
+                context   = this,
+                onSuccess = { folders ->
+                    runOnUiThread {
+                        folderList.clear()
+                        btnRefreshS3Folders?.isEnabled = true
+                        if (folders.isEmpty()) {
+                            folderList.add("(no folders found)")
+                            tvIsrUploadStatus?.text = "No remote folders found. Create one first."
+                        } else {
+                            folderList.addAll(folders)
+                            tvIsrUploadStatus?.text = "\u2714 ${folders.size} folder(s) found"
+                        }
+                        folderAdapter.notifyDataSetChanged()
+                        val savedFolder = com.dji.recreate2.aws.S3UploadManager.getCustomFolderName(this)
+                        val savedIdx = folderList.indexOf(savedFolder)
+                        if (savedIdx >= 0) spinnerS3Folder?.setSelection(savedIdx)
+                    }
+                },
+                onError = { err ->
+                    runOnUiThread {
+                        folderList.clear()
+                        folderList.add("\u26A0 Error \u2014 tap \u21BB REFRESH")
+                        folderAdapter.notifyDataSetChanged()
+                        btnRefreshS3Folders?.isEnabled = true
+                        tvIsrUploadStatus?.text = "Folder fetch failed: $err"
+                        log("S3 folder list error: $err")
+                    }
+                }
+            )
+        }
+
+        loadS3Folders()
+
+        btnRefreshS3Folders?.setOnClickListener { loadS3Folders() }
+
+        btnUseSelectedS3Folder?.setOnClickListener {
+            val selected = spinnerS3Folder?.selectedItem?.toString()?.trim() ?: ""
+            if (selected.isEmpty() || selected.startsWith("\u23F3") || selected.startsWith("\u26A0") || selected.startsWith("(")) {
+                showToast("No valid folder selected")
+                return@setOnClickListener
+            }
+            etS3CustomFolder?.setText(selected)
+            etS3CustomFolder?.visibility = View.VISIBLE
+            currentS3FolderMode = com.dji.recreate2.aws.S3UploadManager.FOLDER_MODE_CUSTOM
+            updateFolderModeUi()
+            tvIsrUploadStatus?.text = "\u2714 Active folder: $selected"
+            showToast("Target folder set: $selected")
+            log("ISR: Active S3 folder selected from dropdown \u2192 $selected")
+        }
+        // ─────────────────────────────────────────────────────────────────
+
+        // ── CONNECT TO CEPH / S3 ─────────────────────────────────────────
+        btnConnectCeph?.setOnClickListener {
+            val url = etS3ServerUrl?.text.toString().trim()
+            val ak  = etS3AccessKey?.text.toString().trim()
+            val sk  = etS3SecretKey?.text.toString().trim()
+            val reg = etS3Region?.text.toString().trim()
+
+            if (url.isEmpty() || ak.isEmpty() || sk.isEmpty()) {
+                showToast("Fill in S3 URL, Access Key, and Secret Key first")
+                return@setOnClickListener
+            }
+
+            // Save credentials first, then test connection by listing folders
+            com.dji.recreate2.aws.S3UploadManager.saveS3ServerUrl(this, url)
+            com.dji.recreate2.aws.S3UploadManager.saveCredentials(this, ak, sk, if (reg.isEmpty()) "BT" else reg)
+
+            tvIsrUploadStatus?.text = "Connecting to Ceph S3…"
+            pbIsrUpload?.visibility = View.VISIBLE
+            pbIsrUpload?.progress   = 30
+            btnConnectCeph?.isEnabled = false
+            btnConnectCeph?.text = "🔗 CONNECTING…"
+
+            com.dji.recreate2.aws.S3UploadManager.listRemoteFolders(
+                context   = this,
+                onSuccess = { folders ->
+                    runOnUiThread {
+                        pbIsrUpload?.progress   = 100
+                        pbIsrUpload?.postDelayed({ pbIsrUpload?.visibility = View.GONE }, 2000)
+                        btnConnectCeph?.isEnabled = true
+                        btnConnectCeph?.text = "🔗 CONNECT TO CEPH / S3"
+                        tvIsrUploadStatus?.text = "✔ Connected! ${folders.size} folder(s) found"
+                        showToast("Ceph S3 connected! ${folders.size} folders found")
+                        log("Ceph S3 connection OK — URL=$url, folders: $folders")
+                        // Refresh the spinner too
+                        folderList.clear()
+                        if (folders.isEmpty()) folderList.add("(no folders found)") else folderList.addAll(folders)
+                        folderAdapter.notifyDataSetChanged()
+                    }
+                },
+                onError = { err ->
+                    runOnUiThread {
+                        pbIsrUpload?.visibility = View.GONE
+                        btnConnectCeph?.isEnabled = true
+                        btnConnectCeph?.text = "🔗 CONNECT TO CEPH / S3"
+                        tvIsrUploadStatus?.text = "✗ Connection failed: $err"
+                        showToast("Ceph S3 connection failed: $err")
+                        log("Ceph S3 connection error: $err")
+                    }
+                }
+            )
+        }
+
+        // ── SELECT LOCAL FOLDER ──────────────────────────────────────────
+        btnPickLocalFolder?.setOnClickListener {
+            // Use Android Storage Access Framework to pick a directory
+            try {
+                val intent = android.content.Intent(android.content.Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
+                    addFlags(
+                        android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                        android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION or
+                        android.content.Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION
+                    )
+                }
+                // Store reference to dialog field so onActivityResult can populate it
+                pendingLocalFolderEditText = etLocalFolderPath
+                startActivityForResult(intent, REQUEST_CODE_PICK_LOCAL_FOLDER)
+            } catch (e: Exception) {
+                showToast("Folder picker not available: ${e.message}")
+                log("SAF folder picker error: ${e.message}")
+            }
+        }
+
+        // Save path when user edits it manually
+        etLocalFolderPath?.setOnFocusChangeListener { _, hasFocus ->
+            if (!hasFocus) {
+                val path = etLocalFolderPath.text.toString().trim()
+                if (path.isNotEmpty()) {
+                    prefs.edit().putString("isrLocalFolderPath", path).apply()
+                    tvIsrUploadStatus?.text = "✔ Local folder: $path"
+                    log("ISR local folder path saved: $path")
+                }
+            }
+        }
+
         
         btnWebOdmConfig?.setOnClickListener {
             dialog.dismiss()
             showWebOdmConfigDialog()
         }
+
+        // CONFINED SPACE & GPS-DENIED FLIGHT BINDS
+        val btnGpsDeniedMode = dialog.findViewById<android.widget.Button>(R.id.btnGpsDeniedMode)
+        val btnConfinedSpaceMode = dialog.findViewById<android.widget.Button>(R.id.btnConfinedSpaceMode)
+
+        fun updateGpsDeniedUi() {
+            val enabled = com.dji.recreate2.flight.ConfinedSpaceFlightManager.isGpsDeniedModeEnabled
+            btnGpsDeniedMode?.text = if (enabled) "GPS-DENIED MODE: ON (INDOOR VPS)" else "GPS-DENIED MODE: OFF (OUTDOOR GPS)"
+            btnGpsDeniedMode?.setTextColor(if (enabled) android.graphics.Color.parseColor("#00FF66") else android.graphics.Color.WHITE)
+        }
+
+        fun updateConfinedSpaceUi() {
+            val enabled = com.dji.recreate2.flight.ConfinedSpaceFlightManager.isConfinedSpaceModeEnabled
+            val dist = com.dji.recreate2.flight.ConfinedSpaceFlightManager.obstacleBrakeDistanceMeters
+            btnConfinedSpaceMode?.text = if (enabled) "CONFINED SPACE MODE: TIGHT (${dist}m BRAKE)" else "CONFINED SPACE MODE: NORMAL (10m BRAKE)"
+            btnConfinedSpaceMode?.setTextColor(if (enabled) android.graphics.Color.parseColor("#00FF66") else android.graphics.Color.WHITE)
+        }
+
+        updateGpsDeniedUi()
+        updateConfinedSpaceUi()
+
+        btnGpsDeniedMode?.setOnClickListener {
+            val next = !com.dji.recreate2.flight.ConfinedSpaceFlightManager.isGpsDeniedModeEnabled
+            com.dji.recreate2.flight.ConfinedSpaceFlightManager.setGpsDeniedMode(this, next)
+            updateGpsDeniedUi()
+            showToast("GPS-Denied Indoor Mode: ${if (next) "ENABLED (VPS ACTIVE)" else "DISABLED"}")
+        }
+
+        btnConfinedSpaceMode?.setOnClickListener {
+            val next = !com.dji.recreate2.flight.ConfinedSpaceFlightManager.isConfinedSpaceModeEnabled
+            com.dji.recreate2.flight.ConfinedSpaceFlightManager.setConfinedSpaceMode(this, next, brakeDistance = 1.0)
+            updateConfinedSpaceUi()
+            showToast("Confined Space Mode: ${if (next) "ENABLED (1.0m BRAKE)" else "NORMAL (10m BRAKE)"}")
+        }
         
         btnConnectServer?.setOnClickListener {
-            val ip = etServerIp?.text.toString()
-            val port = etServerPort?.text.toString()
-            val user = etMqttUser?.text.toString()
+            val rawIp = etServerIp?.text.toString().trim()
+            val port = etServerPort?.text.toString().trim()
+            val user = etMqttUser?.text.toString().trim()
             val pass = etMqttPass?.text.toString()
-            if (ip.isNotEmpty() && port.isNotEmpty()) {
-                val fullAddress = "tcp://$ip:$port"
+            if (rawIp.isNotEmpty() && port.isNotEmpty()) {
+                val cleanIp = rawIp.removePrefix("tcp://").removePrefix("ssl://").removePrefix("ws://").removePrefix("wss://").trim()
+                val fullAddress = if (rawIp.startsWith("ssl://") || rawIp.startsWith("ws://") || rawIp.startsWith("wss://")) {
+                    if (rawIp.contains(":")) rawIp else "$rawIp:$port"
+                } else {
+                    "tcp://$cleanIp:$port"
+                }
+                
                 sharedPrefs.edit()
-                    .putString("mqttServerIp", ip)
+                    .putString("mqttServerIp", rawIp)
                     .putString("mqttServerPort", port)
                     .putString("mqttServerAddress", fullAddress)
                     .putString("mqttUser", user)
@@ -4098,6 +5200,7 @@ class MainActivity : AppCompatActivity() {
                     .apply()
                     
                 showToast("Connecting to $fullAddress...")
+                log("Attempting MQTT connection to: $fullAddress (User: $user)")
                 mqttService.connect(fullAddress)
             }
         }
@@ -4198,7 +5301,6 @@ class MainActivity : AppCompatActivity() {
         }
 
         dBtnPair.setOnClickListener { togglePairing() }
-        dBtnDownload.setOnClickListener { downloadLatestMedia() }
         
         dBtnGimbalSens.setOnClickListener {
             swipeSensitivity += 0.1f
@@ -4394,14 +5496,35 @@ class MainActivity : AppCompatActivity() {
 
     private fun handleMqttCommand(json: org.json.JSONObject) {
         lastGcsHeartbeatTime = System.currentTimeMillis()
-        // H-01: dispatch off the UI thread; only post actual UI updates back via runOnUiThread
         var command = "UNKNOWN"
         var transactionId: String? = null
         try {
-            command = json.getString("command")
             if (json.has("transaction_id")) {
                 transactionId = json.getString("transaction_id")
             }
+
+            // Check for top-level isr_mode setting: 1, 2, or NONE/0
+            if (json.has("isr_mode")) {
+                val modeVal = json.opt("isr_mode")?.toString()?.uppercase() ?: ""
+                val targetMode = when (modeVal) {
+                    "1", "MODE1" -> "MODE1"
+                    "2", "MODE2" -> "MODE2"
+                    "0", "NONE", "OFF", "DISABLE" -> "NONE"
+                    else -> modeVal
+                }
+                if (targetMode.isNotEmpty()) {
+                    com.dji.recreate2.sync.ISRModeManager.setMode(targetMode, this)
+                    runOnUiThread { showToast("C2: ISR Mode set to $targetMode") }
+                }
+            }
+
+            if (json.has("command")) {
+                command = json.getString("command").trim().uppercase()
+            } else if (json.has("isr_mode")) {
+                publishCommandReceipt(transactionId, "SET_ISR_MODE", "COMPLETED")
+                return
+            }
+
             log("C2 Received: $command")
             publishCommandReceipt(transactionId, command, "ACCEPTED")
             when (command) {
@@ -4428,60 +5551,7 @@ class MainActivity : AppCompatActivity() {
                             }
                         }
                         
-                        tacticalWaypoints.add(wp)
-                        
-                        val marker = org.osmdroid.views.overlay.Marker(mapView)
-                        marker.position = wp.geoPoint
-                        marker.icon = androidx.core.content.ContextCompat.getDrawable(this@MainActivity, R.drawable.ic_nato_waypoint)
-                        marker.setAnchor(org.osmdroid.views.overlay.Marker.ANCHOR_CENTER, org.osmdroid.views.overlay.Marker.ANCHOR_CENTER)
-                        val methodSuffix = if (wp.movementMethod != "linear") " (${wp.movementMethod.uppercase()})" else ""
-                        val actionSuffix = if (wp.actionType != "FLY") " [${wp.actionType}]" else ""
-                        marker.title = "${wp.name}$methodSuffix$actionSuffix"
-                        marker.setOnMarkerClickListener { m, _ ->
-                            showWaypointActionDialog(wp, m as org.osmdroid.views.overlay.Marker)
-                            true
-                        }
-                        wp.osmdroidMarker = marker
-                        mapView.overlays.add(marker)
-                        updateFlightPathLine()
-                        mapView.invalidate()
-                        publishWaypointsUpdate()
-                        showToast("C2: Added Waypoint")
-                        publishCommandReceipt(transactionId, command, "COMPLETED")
-                    }
-                    "UPLOAD_MISSION" -> {
-                        tacticalWaypoints.forEach { wp ->
-                            wp.osmdroidMarker?.let { mapView.overlays.remove(it) }
-                        }
-                        tacticalWaypoints.clear()
-                        
-                        val wps = json.getJSONArray("waypoints")
-                        for (i in 0 until wps.length()) {
-                            val wpData = wps.getJSONObject(i)
-                            val lat = wpData.getDouble("lat")
-                            val lon = wpData.getDouble("lng")
-                            val alt = wpData.optDouble("alt", 50.0)
-                            val speed = wpData.optDouble("speed", 10.0)
-                            val wpName = if (wpData.has("name")) wpData.getString("name") else "waypoint_${tacticalWaypoints.size + 1}"
-                            
-                            val wp = TacticalWaypoint(org.osmdroid.util.GeoPoint(lat, lon), name = wpName, altitude = alt, speed = speed)
-                            
-                            if (wpData.has("heading")) wp.heading = wpData.getDouble("heading")
-                            if (wpData.has("dwellTime")) wp.dwellTime = wpData.getDouble("dwellTime")
-                            if (wpData.has("movementMethod")) wp.movementMethod = wpData.getString("movementMethod")
-                            if (wpData.has("orbitRadius")) wp.orbitRadius = wpData.getDouble("orbitRadius")
-                            if (wpData.has("orbitLoops")) wp.orbitLoops = wpData.getInt("orbitLoops")
-                            
-                            if (wpData.has("actionType")) {
-                                wp.actionType = wpData.getString("actionType")
-                                if (wpData.has("poiLat") && wpData.has("poiLng")) {
-                                    wp.poiTarget = org.osmdroid.util.GeoPoint(wpData.getDouble("poiLat"), wpData.getDouble("poiLng"))
-                                }
-                                if (wpData.has("gimbalPitch")) {
-                                    wp.gimbalPitch = wpData.getDouble("gimbalPitch")
-                                }
-                            }
-                            
+                        runOnUiThread {
                             tacticalWaypoints.add(wp)
                             
                             val marker = org.osmdroid.views.overlay.Marker(mapView)
@@ -4497,11 +5567,68 @@ class MainActivity : AppCompatActivity() {
                             }
                             wp.osmdroidMarker = marker
                             mapView.overlays.add(marker)
+                            updateFlightPathLine()
+                            mapView.invalidate()
+                            publishWaypointsUpdate()
+                            showToast("C2: Added Waypoint")
                         }
-                        updateFlightPathLine()
-                        mapView.invalidate()
-                        publishWaypointsUpdate()
-                        showToast("C2: Uploaded Mission with ${tacticalWaypoints.size} WPs")
+                        publishCommandReceipt(transactionId, command, "COMPLETED")
+                    }
+                    "UPLOAD_MISSION" -> {
+                        runOnUiThread {
+                            tacticalWaypoints.forEach { wp ->
+                                wp.osmdroidMarker?.let { mapView.overlays.remove(it) }
+                            }
+                            tacticalWaypoints.clear()
+                            
+                            val wps = json.getJSONArray("waypoints")
+                            for (i in 0 until wps.length()) {
+                                val wpData = wps.getJSONObject(i)
+                                val lat = wpData.getDouble("lat")
+                                val lon = wpData.getDouble("lng")
+                                val alt = wpData.optDouble("alt", 50.0)
+                                val speed = wpData.optDouble("speed", 10.0)
+                                val wpName = if (wpData.has("name")) wpData.getString("name") else "waypoint_${tacticalWaypoints.size + 1}"
+                                
+                                val wp = TacticalWaypoint(org.osmdroid.util.GeoPoint(lat, lon), name = wpName, altitude = alt, speed = speed)
+                                
+                                if (wpData.has("heading")) wp.heading = wpData.getDouble("heading")
+                                if (wpData.has("dwellTime")) wp.dwellTime = wpData.getDouble("dwellTime")
+                                if (wpData.has("movementMethod")) wp.movementMethod = wpData.getString("movementMethod")
+                                if (wpData.has("orbitRadius")) wp.orbitRadius = wpData.getDouble("orbitRadius")
+                                if (wpData.has("orbitLoops")) wp.orbitLoops = wpData.getInt("orbitLoops")
+                                
+                                if (wpData.has("actionType")) {
+                                    wp.actionType = wpData.getString("actionType")
+                                    if (wpData.has("poiLat") && wpData.has("poiLng")) {
+                                        wp.poiTarget = org.osmdroid.util.GeoPoint(wpData.getDouble("poiLat"), wpData.getDouble("poiLng"))
+                                    }
+                                    if (wpData.has("gimbalPitch")) {
+                                        wp.gimbalPitch = wpData.getDouble("gimbalPitch")
+                                    }
+                                }
+                                
+                                tacticalWaypoints.add(wp)
+                                
+                                val marker = org.osmdroid.views.overlay.Marker(mapView)
+                                marker.position = wp.geoPoint
+                                marker.icon = androidx.core.content.ContextCompat.getDrawable(this@MainActivity, R.drawable.ic_nato_waypoint)
+                                marker.setAnchor(org.osmdroid.views.overlay.Marker.ANCHOR_CENTER, org.osmdroid.views.overlay.Marker.ANCHOR_CENTER)
+                                val methodSuffix = if (wp.movementMethod != "linear") " (${wp.movementMethod.uppercase()})" else ""
+                                val actionSuffix = if (wp.actionType != "FLY") " [${wp.actionType}]" else ""
+                                marker.title = "${wp.name}$methodSuffix$actionSuffix"
+                                marker.setOnMarkerClickListener { m, _ ->
+                                    showWaypointActionDialog(wp, m as org.osmdroid.views.overlay.Marker)
+                                    true
+                                }
+                                wp.osmdroidMarker = marker
+                                mapView.overlays.add(marker)
+                            }
+                            updateFlightPathLine()
+                            mapView.invalidate()
+                            publishWaypointsUpdate()
+                            showToast("C2: Uploaded Mission with ${tacticalWaypoints.size} WPs")
+                        }
                         publishCommandReceipt(transactionId, command, "COMPLETED")
                     }
                     "EXECUTE_MISSION" -> {
@@ -4548,6 +5675,143 @@ class MainActivity : AppCompatActivity() {
                             val spnMapMode = findViewById<android.widget.Spinner>(R.id.spnMapMode)
                             spnMapMode.setSelection(if (activeMappingMode == MappingMode.QUICK) 1 else 0)
                             showToast("C2: Mapping Mode Set to $activeMappingMode")
+                        }
+                        publishCommandReceipt(transactionId, command, "COMPLETED")
+                    }
+                    "SET_S3_CONFIG", "UPDATE_S3_CONFIG", "SET_STORAGE_CONFIG" -> {
+                        val serverUrl = json.optString("serverUrl", json.optString("s3Url"))
+                        val accessKey = json.optString("accessKey", json.optString("ak"))
+                        val secretKey = json.optString("secretKey", json.optString("sk"))
+                        val region = json.optString("region", "BT")
+                        val folderMode = json.optString("folderMode", json.optString("mode"))
+                        val customFolder = json.optString("customFolder", json.optString("folder"))
+                        val localFolder = json.optString("localFolder")
+                        val isrMode = json.optString("isrMode")
+
+                        if (serverUrl.isNotEmpty()) {
+                            com.dji.recreate2.aws.S3UploadManager.saveS3ServerUrl(this, serverUrl)
+                        }
+                        if (accessKey.isNotEmpty() && secretKey.isNotEmpty()) {
+                            com.dji.recreate2.aws.S3UploadManager.saveCredentials(this, accessKey, secretKey, if (region.isEmpty()) "BT" else region)
+                        }
+                        if (folderMode.isNotEmpty() || customFolder.isNotEmpty()) {
+                            val mode = if (folderMode.equals("CUSTOM", ignoreCase = true)) com.dji.recreate2.aws.S3UploadManager.FOLDER_MODE_CUSTOM else com.dji.recreate2.aws.S3UploadManager.FOLDER_MODE_AUTO
+                            com.dji.recreate2.aws.S3UploadManager.saveFolderConfig(this, mode, customFolder)
+                        }
+                        if (localFolder.isNotEmpty()) {
+                            com.dji.recreate2.sync.PostFlightS3Sync.saveLocalFetchFolderName(this, localFolder)
+                        }
+                        if (isrMode.isNotEmpty()) {
+                            com.dji.recreate2.sync.ISRModeManager.setMode(isrMode.uppercase(), this)
+                        }
+
+                        runOnUiThread {
+                            showToast("C2: S3 & Storage Config Updated")
+                        }
+                        publishCommandReceipt(transactionId, command, "COMPLETED")
+                    }
+                    "CREATE_FOLDER", "CREATE_S3_FOLDER", "MKDIR" -> {
+                        val folderName = json.optString("folderName", json.optString("folder", json.optString("name")))
+                        val target = json.optString("target", "ALL").uppercase()
+
+                        if (folderName.isEmpty()) {
+                            runOnUiThread { showToast("C2 Error: Folder name missing") }
+                            publishCommandReceipt(transactionId, command, "FAILED", errorCode = -1, errorMessage = "Folder name missing")
+                        } else {
+                            publishCommandReceipt(transactionId, command, "EXECUTING")
+
+                            if (target == "LOCAL" || target == "ALL") {
+                                com.dji.recreate2.sync.PostFlightS3Sync.saveLocalFetchFolderName(this, folderName)
+                                com.dji.recreate2.sync.PostFlightS3Sync.getLocalFetchDirectory(this)
+                            }
+
+                            if (target == "S3" || target == "ALL") {
+                                com.dji.recreate2.aws.S3UploadManager.createRemoteFolder(
+                                    this,
+                                    folderName,
+                                    onSuccess = {
+                                        runOnUiThread { showToast("C2: Created Folder '$folderName'") }
+                                        publishCommandReceipt(transactionId, command, "COMPLETED")
+                                    },
+                                    onError = { err ->
+                                        runOnUiThread { showToast("C2 Folder Error: $err") }
+                                        publishCommandReceipt(transactionId, command, "FAILED", errorCode = -2, errorMessage = err)
+                                    }
+                                )
+                            } else {
+                                runOnUiThread { showToast("C2: Created Local Folder '$folderName'") }
+                                publishCommandReceipt(transactionId, command, "COMPLETED")
+                            }
+                        }
+                    }
+                    "START_TASK", "ASSIGN_TASK" -> {
+                        val taskId = json.optString("taskId", json.optString("id", "task_" + System.currentTimeMillis()))
+                        val taskName = json.optString("taskName", taskId)
+                        val taskType = json.optString("taskType", "ISR")
+                        val waypoints = if (json.has("waypoints")) json.toString() else null
+
+                        val task = com.dji.recreate2.task.DroneTask(
+                            taskId = taskId,
+                            taskName = taskName,
+                            taskType = taskType,
+                            waypointsJson = waypoints
+                        )
+
+                        com.dji.recreate2.task.DroneTaskManager.startTask(this, task, executeNow = true)
+                        publishCommandReceipt(transactionId, command, "COMPLETED")
+                    }
+                    "QUEUE_TASK" -> {
+                        val taskId = json.optString("taskId", json.optString("id", "task_" + System.currentTimeMillis()))
+                        val taskName = json.optString("taskName", taskId)
+                        val taskType = json.optString("taskType", "ISR")
+                        val waypoints = if (json.has("waypoints")) json.toString() else null
+
+                        val task = com.dji.recreate2.task.DroneTask(
+                            taskId = taskId,
+                            taskName = taskName,
+                            taskType = taskType,
+                            waypointsJson = waypoints
+                        )
+
+                        com.dji.recreate2.task.DroneTaskManager.enqueueTask(this, task)
+                        publishCommandReceipt(transactionId, command, "COMPLETED")
+                    }
+                    "CANCEL_TASK" -> {
+                        val taskId = json.optString("taskId", json.optString("id"))
+                        if (taskId.isNotEmpty()) {
+                            val cancelled = com.dji.recreate2.task.DroneTaskManager.cancelTask(this, taskId)
+                            if (cancelled) {
+                                publishCommandReceipt(transactionId, command, "COMPLETED")
+                            } else {
+                                publishCommandReceipt(transactionId, command, "FAILED", errorCode = -404, errorMessage = "Task ID not found")
+                            }
+                        } else {
+                            publishCommandReceipt(transactionId, command, "FAILED", errorCode = -1, errorMessage = "Missing taskId parameter")
+                        }
+                    }
+                    "CANCEL_ALL_TASKS" -> {
+                        com.dji.recreate2.task.DroneTaskManager.cancelAllTasks(this)
+                        publishCommandReceipt(transactionId, command, "COMPLETED")
+                    }
+                    "CLEAR_TASK_QUEUE" -> {
+                        com.dji.recreate2.task.DroneTaskManager.clearQueue()
+                        publishCommandReceipt(transactionId, command, "COMPLETED")
+                    }
+                    "SET_GPS_DENIED_MODE" -> {
+                        val enabled = json.optBoolean("enabled", true)
+                        com.dji.recreate2.flight.ConfinedSpaceFlightManager.setGpsDeniedMode(this, enabled)
+                        runOnUiThread {
+                            showToast("C2: GPS-Denied Mode -> $enabled")
+                        }
+                        publishCommandReceipt(transactionId, command, "COMPLETED")
+                    }
+                    "SET_CONFINED_SPACE_MODE" -> {
+                        val enabled = json.optBoolean("enabled", true)
+                        val dist = json.optDouble("brakeDistance", 1.0)
+                        val maxSpeed = json.optDouble("maxSpeed", 1.0).toFloat()
+                        com.dji.recreate2.flight.ConfinedSpaceFlightManager.setConfinedSpaceMode(this, enabled, dist, maxSpeed)
+                        runOnUiThread {
+                            showToast("C2: Confined Space Mode -> $enabled (${dist}m brake)")
                         }
                         publishCommandReceipt(transactionId, command, "COMPLETED")
                     }
@@ -4703,16 +5967,18 @@ class MainActivity : AppCompatActivity() {
                         }.start()
                     }
                     "CLEAR_MISSION" -> {
-                        tacticalWaypoints.clear()
-                        val toRemove = mapView.overlays.filter { 
-                            it is org.osmdroid.views.overlay.Polyline || 
-                            (it is org.osmdroid.views.overlay.Marker && it.title?.startsWith("WP") == true) || 
-                            (it is org.osmdroid.views.overlay.Polygon) 
+                        runOnUiThread {
+                            tacticalWaypoints.clear()
+                            val toRemove = mapView.overlays.filter { 
+                                it is org.osmdroid.views.overlay.Polyline || 
+                                (it is org.osmdroid.views.overlay.Marker && it.title?.startsWith("WP") == true) || 
+                                (it is org.osmdroid.views.overlay.Polygon) 
+                            }
+                            mapView.overlays.removeAll(toRemove)
+                            updateFlightPathLine()
+                            mapView.invalidate()
+                            showToast("C2: Mission Cleared")
                         }
-                        mapView.overlays.removeAll(toRemove)
-                        updateFlightPathLine()
-                        mapView.invalidate()
-                        showToast("C2: Mission Cleared")    
                         publishCommandReceipt(transactionId, command, "COMPLETED")
                     }
                     "START_RTMP" -> {
@@ -4740,7 +6006,7 @@ class MainActivity : AppCompatActivity() {
                             }
                         })
                     }
-                    "PHOTO" -> {
+                    "PHOTO", "PHOTO_CAPTURE", "TAKE_PHOTO" -> {
                         publishCommandReceipt(transactionId, command, "EXECUTING")
                         setCameraMode(dji.sdk.keyvalue.value.camera.CameraMode.PHOTO_NORMAL) {  
                             val key = dji.sdk.keyvalue.key.KeyTools.createKey(dji.sdk.keyvalue.key.CameraKey.KeyStartShootPhoto, dji.sdk.keyvalue.value.common.ComponentIndexType.LEFT_OR_MAIN)
@@ -4756,7 +6022,7 @@ class MainActivity : AppCompatActivity() {
                             })
                         }
                     }
-                    "RECORD_START" -> {
+                    "RECORD_START", "START_RECORD", "START_RECORDING", "START" -> {
                         publishCommandReceipt(transactionId, command, "EXECUTING")
                         setCameraMode(dji.sdk.keyvalue.value.camera.CameraMode.VIDEO_NORMAL) {
                             val key = dji.sdk.keyvalue.key.KeyTools.createKey(dji.sdk.keyvalue.key.CameraKey.KeyStartRecord, dji.sdk.keyvalue.value.common.ComponentIndexType.LEFT_OR_MAIN)
@@ -4778,7 +6044,7 @@ class MainActivity : AppCompatActivity() {
                             })
                         }
                     }
-                    "RECORD_STOP" -> {
+                    "RECORD_STOP", "STOP_RECORD", "STOP_RECORDING", "STOP" -> {
                         publishCommandReceipt(transactionId, command, "EXECUTING")
                         val key = dji.sdk.keyvalue.key.KeyTools.createKey(dji.sdk.keyvalue.key.CameraKey.KeyStopRecord, dji.sdk.keyvalue.value.common.ComponentIndexType.LEFT_OR_MAIN)
                         dji.v5.manager.KeyManager.getInstance().performAction(key, object : dji.v5.common.callback.CommonCallbacks.CompletionCallbackWithParam<dji.sdk.keyvalue.value.common.EmptyMsg> {
@@ -5019,6 +6285,67 @@ class MainActivity : AppCompatActivity() {
                             publishCommandReceipt(transactionId, command, "FAILED", errorCode = -30, errorMessage = "Waypoint not found by index/name")
                         }
                     }
+                    "RESET_ZOOM" -> {
+                        publishCommandReceipt(transactionId, command, "EXECUTING")
+                        resetZoom()
+                        publishCommandReceipt(transactionId, command, "COMPLETED")
+                    }
+                    "SET_CAMERA_ZOOM" -> {
+                        publishCommandReceipt(transactionId, command, "EXECUTING")
+                        val ratio = json.optDouble("zoom", 1.0)
+                        currentZoomRatio = ratio
+                        val zoomKey = KeyTools.createCameraKey(CameraKey.KeyCameraZoomRatios, ComponentIndexType.LEFT_OR_MAIN, CameraLensType.CAMERA_LENS_ZOOM)
+                        KeyManager.getInstance().setValue(zoomKey, ratio, object : CommonCallbacks.CompletionCallback {
+                            override fun onSuccess() {
+                                runOnUiThread { showToast("C2: Zoom set to ${ratio}x") }
+                                publishCommandReceipt(transactionId, command, "COMPLETED")
+                            }
+                            override fun onFailure(error: IDJIError) {
+                                publishCommandReceipt(transactionId, command, "FAILED", errorCode = error.errorCode(), errorMessage = error.description())
+                            }
+                        })
+                    }
+                    "TAP_TO_FOCUS" -> {
+                        publishCommandReceipt(transactionId, command, "EXECUTING")
+                        val normX = json.optDouble("x", 0.5).coerceIn(0.0, 1.0)
+                        val normY = json.optDouble("y", 0.5).coerceIn(0.0, 1.0)
+                        triggerTapToFocus(normX, normY)
+                        publishCommandReceipt(transactionId, command, "COMPLETED")
+                    }
+                    "AUTO_FOCUS" -> {
+                        publishCommandReceipt(transactionId, command, "EXECUTING")
+                        triggerContinuousAutoFocus()
+                        publishCommandReceipt(transactionId, command, "COMPLETED")
+                    }
+                    "SET_ISR_MODE" -> {
+                        publishCommandReceipt(transactionId, command, "EXECUTING")
+                        val modeStr = json.optString("mode", "NONE").uppercase()
+                        com.dji.recreate2.sync.ISRModeManager.setMode(modeStr, this)
+                        runOnUiThread { showToast("C2: ISR Mode set to $modeStr") }
+                        publishCommandReceipt(transactionId, command, "COMPLETED")
+                    }
+                    "SET_ISR_OVERLAYS" -> {
+                        publishCommandReceipt(transactionId, command, "EXECUTING")
+                        if (json.has("reticle")) {
+                            com.dji.recreate2.sync.FpvStreamRecorder.isReticleOverlayEnabled = json.getBoolean("reticle")
+                        }
+                        if (json.has("compass")) {
+                            com.dji.recreate2.sync.FpvStreamRecorder.isCompassOverlayEnabled = json.getBoolean("compass")
+                        }
+                        publishCommandReceipt(transactionId, command, "COMPLETED")
+                    }
+                    "TRIGGER_MODE1_CAPTURE", "ISR_CAPTURE", "CAPTURE_ISR", "TAKE_PHOTO", "PHOTO_CAPTURE", "CAPTURE", "MODE1_CAPTURE" -> {
+                        publishCommandReceipt(transactionId, command, "EXECUTING")
+                        runOnUiThread { showToast("C2: Triggering ISR Photo Capture...") }
+                        capturePhoto()
+                        publishCommandReceipt(transactionId, command, "COMPLETED")
+                    }
+                    "TRIGGER_MODE2_SYNC", "ISR_SYNC", "SYNC_MODE2", "MODE2_SYNC" -> {
+                        publishCommandReceipt(transactionId, command, "EXECUTING")
+                        runOnUiThread { showToast("C2: Triggering ISR Mode 2 SD Sync...") }
+                        com.dji.recreate2.sync.PostFlightS3Sync.startSync(this)
+                        publishCommandReceipt(transactionId, command, "COMPLETED")
+                    }
                     else -> {
                         publishCommandReceipt(transactionId, command, "FAILED", errorCode = -404, errorMessage = "Unknown command: $command")
                     }
@@ -5026,6 +6353,42 @@ class MainActivity : AppCompatActivity() {
         } catch (e: Exception) {
             log("Error parsing C2 command: ${e.message}")
             publishCommandReceipt(transactionId, command, "REJECTED", errorCode = -1, errorMessage = e.message)
+        }
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: android.content.Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == REQUEST_CODE_PICK_LOCAL_FOLDER && resultCode == android.app.Activity.RESULT_OK) {
+            val uri = data?.data ?: return
+            // Persist access across reboots
+            try {
+                contentResolver.takePersistableUriPermission(
+                    uri,
+                    android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                    android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                )
+            } catch (_: Exception) { }
+
+            // Resolve to a display path string
+            val path = try {
+                // Decode the document tree URI to a readable path
+                val docId = androidx.documentfile.provider.DocumentFile.fromTreeUri(this, uri)?.uri?.lastPathSegment ?: uri.toString()
+                val decoded = java.net.URLDecoder.decode(docId, "UTF-8")
+                // docId is often "primary:DCIM/ISR_Sync" — convert to /sdcard/ path
+                if (decoded.contains(":")) {
+                    val parts = decoded.split(":", limit = 2)
+                    if (parts[0] == "primary") "/sdcard/${parts[1]}" else "/storage/${parts[0]}/${parts[1]}"
+                } else {
+                    decoded
+                }
+            } catch (_: Exception) { uri.toString() }
+
+            pendingLocalFolderEditText?.setText(path)
+            getSharedPreferences("TacticalHUDConfig", android.content.Context.MODE_PRIVATE)
+                .edit().putString("isrLocalFolderPath", path).apply()
+            showToast("Local folder set: $path")
+            log("ISR local folder picked via SAF: $path")
+            pendingLocalFolderEditText = null
         }
     }
 
@@ -5480,7 +6843,8 @@ class MainActivity : AppCompatActivity() {
                 }
                 return
             }
-            if (gps < 10) {
+            val isGpsDeniedMode = com.dji.recreate2.flight.ConfinedSpaceFlightManager.isGpsDeniedModeEnabled
+            if (!isGpsDeniedMode && gps < 10) {
                 runOnUiThread { showToast("PRE-FLIGHT FAILED: Weak GPS Signal (< 10 Sats)") }
                 if (::mqttService.isInitialized) {
                     val logObj = org.json.JSONObject()

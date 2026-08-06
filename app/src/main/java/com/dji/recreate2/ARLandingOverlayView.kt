@@ -164,13 +164,43 @@ class ARLandingOverlayView @JvmOverloads constructor(
     }
 
     private fun drawCentralCrosshair(canvas: Canvas, cx: Float, cy: Float) {
-        val radius = 30f
+        // Option A: Military UAV OSD Boresight
+        val armLen = 40f
         val gap = 12f
-        canvas.drawCircle(cx, cy, radius, crosshairPaint)
-        canvas.drawLine(cx - radius - gap, cy, cx - gap, cy, crosshairPaint)
-        canvas.drawLine(cx + gap, cy, cx + radius + gap, cy, crosshairPaint)
-        canvas.drawLine(cx, cy - radius - gap, cx, cy - gap, crosshairPaint)
-        canvas.drawLine(cx, cy + gap, cx, cy + radius + gap, crosshairPaint)
+        val tickLen = 6f
+
+        // 1. Center Precision Dot
+        canvas.drawCircle(cx, cy, 3f, crosshairPaint)
+
+        // 2. Open Center Crosshair Arms
+        canvas.drawLine(cx - armLen, cy, cx - gap, cy, crosshairPaint)
+        canvas.drawLine(cx + gap, cy, cx + armLen, cy, crosshairPaint)
+        canvas.drawLine(cx, cy - armLen, cx, cy - gap, crosshairPaint)
+        canvas.drawLine(cx, cy + gap, cx, cy + armLen, crosshairPaint)
+
+        // 3. Milliradian Ticks
+        val tickOffset = 25f
+        canvas.drawLine(cx - tickOffset, cy - tickLen, cx - tickOffset, cy + tickLen, crosshairPaint)
+        canvas.drawLine(cx + tickOffset, cy - tickLen, cx + tickOffset, cy + tickLen, crosshairPaint)
+        canvas.drawLine(cx - tickLen, cy - tickOffset, cx + tickLen, cy - tickOffset, crosshairPaint)
+        canvas.drawLine(cx - tickLen, cy + tickOffset, cx + tickLen, cy + tickOffset, crosshairPaint)
+
+        // 4. Tactical Corner Brackets
+        val bSize = 50f
+        val bLen = 14f
+        val p = crosshairPaint
+        // Top-Left
+        canvas.drawLine(cx - bSize, cy - bSize, cx - bSize + bLen, cy - bSize, p)
+        canvas.drawLine(cx - bSize, cy - bSize, cx - bSize, cy - bSize + bLen, p)
+        // Top-Right
+        canvas.drawLine(cx + bSize - bLen, cy - bSize, cx + bSize, cy - bSize, p)
+        canvas.drawLine(cx + bSize, cy - bSize, cx + bSize, cy - bSize + bLen, p)
+        // Bottom-Left
+        canvas.drawLine(cx - bSize, cy + bSize, cx - bSize + bLen, cy + bSize, p)
+        canvas.drawLine(cx - bSize, cy + bSize - bLen, cx - bSize, cy + bSize, p)
+        // Bottom-Right
+        canvas.drawLine(cx + bSize - bLen, cy + bSize, cx + bSize, cy + bSize, p)
+        canvas.drawLine(cx + bSize, cy + bSize - bLen, cx + bSize, cy + bSize, p)
     }
 
     private fun drawCornerAccents(canvas: Canvas, r: RectF) {

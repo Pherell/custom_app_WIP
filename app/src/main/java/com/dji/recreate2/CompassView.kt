@@ -51,9 +51,6 @@ class CompassView @JvmOverloads constructor(
         indicatorPath.close()
         canvas.drawPath(indicatorPath, paint)
         
-        // Draw a small tick above the triangle
-        canvas.drawLine(centerX, indicatorTop - 2f, centerX, indicatorTop - 10f, paint)
-        
         // The visible range of degrees (30 degrees total to match spacing in image)
         val visibleDegrees = 30f
         val pixelsPerDegree = width / visibleDegrees

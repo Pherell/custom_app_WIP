@@ -1,5 +1,42 @@
 # Tactical Drone C2 Server Specification
 
+> **Changelog — 2026-08-06 (ISR Mode 1 Clean FPV Stream Recording, .SRT Telemetry & EXIF Mapping Metadata)**
+> - **Clean Raw FPV Video Stream Recording (`FpvStreamRecorder`):** ISR Mode 1 records raw FPV camera feed directly on tablet with zero HUD overlays, buttons, or telemetry text. Uploads `.mp4` video to S3 immediately upon pressing stop.
+> - **Toggleable Reticle Target Box & Compass Tape Overlays:** Added toggle buttons `btnToggleReticleOverlay` and `btnToggleCompassOverlay` in ISR Mode 1 settings. Allows user to toggle Target Reticle Box (green square) and top Compass Tape ON/OFF independently for both recording and streaming while keeping all non-tactical HUD UI (buttons/menus) excluded.
+> - **Companion `.SRT` Telemetry Subtitles:** Generates live 1-second telemetry samples (GPS Lat, Lon, Alt, Speed, Heading/Yaw, Gimbal Pitch, Satellites, Battery) and exports standard SubRip `.srt` subtitle file alongside the `.mp4` video, uploading both to Ceph S3 automatically.
+> - **EXIF Mapping & Photogrammetry Metadata Injection (`injectExifMetadata`):** Automatically injects standard GPS Latitude, Longitude, Altitude, Timestamp, and Drone Telemetry EXIF tags into every Mode 1 JPEG photo before S3 upload for WebODM, Pix4D, QGIS, and ArcGIS compatibility.
+> - **SigV4 GET Request Signing Fix (`S3UploadManager`):** Fixed S3 ListObjects GET request signing bugs (HTTP method, canonical query string encoding, and empty payload hash) resolving HTTP 403 Forbidden errors when listing remote S3 folders.
+> - **ISR Mode 2 Speed Optimization & Real-time SD Download Progress (`PostFlightS3Sync`):** Wired `onProgress` callback reporting live percentage and MB status (`[1/5] SD Download: IMG_0001.JPG (45% - 18MB / 40MB)`). Enabled parallel S3 upload pipelining while subsequent files download from drone SD card.
+> - **ISR Mode 2 Landed State Sync Fix & Manual Sync Button (`btnIsrMode2SyncNow`):** Resolved issue where Mode 2 required motors to spin ON->OFF to trigger. If drone is already landed (motors OFF) when Mode 2 is enabled, sync fires immediately. Added explicit `🔄 SYNC NOW` button in System Dialog to force manual Mode 2 sync anytime.
+> - **Simplified MQTT JSON Command Syntax (`command: "photo" / "start" / "stop"` & `isr_mode: 1 / 2 / 0`):** Supported short & clean JSON payload structures like `{"command": "photo"}`, `{"command": "start"}`, `{"command": "stop"}`, and top-level `{"isr_mode": 1}` or `{"isr_mode": 2}`.
+> - **MQTT ISR Photo Capture & Sync Commands (`ISR_CAPTURE`, `TAKE_PHOTO`, `PHOTO_CAPTURE`, `CAPTURE`, `ISR_SYNC`):** Added complete command alias suite over MQTT (`dji-sdk/fleet/{clientId}/command`).
+> - **Circular Zoom Reset Button (`RES`) & Tap-To-Focus FPV Overlay:** Added circular green `RES` button directly below `GMB` in the HUD button stack to instantly reset camera zoom to 1.0x. Tapping anywhere on the FPV stream now triggers target focus at normalized `(x, y)` coordinates with animated green target ring UI.
+> - **Mode 1 & Mode 2 Local Storage Fallback (`saveToLocalStorage`):** Preserves all Mode 1 captured photos/videos and Mode 2 SD sync files directly in designated tablet local storage (`Pictures/ISR_Local_Storage` or custom SAF folder) even if Ceph S3 server is offline or unreachable.
+>
+> - **GPS-Denied Indoor Flight Engine (`SET_GPS_DENIED_MODE`):** Bypasses pre-flight satellite count requirements (`< 10 sats`), utilizing Downward Vision Positioning System (VPS), IMU, and TOF altitude sensors for indoor/subterranean/air-gapped flight.
+> - **Virtual Stick `BODY` Frame Navigation:** Automatically switches Virtual Stick roll/pitch coordinate system from `GROUND` to `BODY` (Forward/Right relative to aircraft nose) when GPS-Denied mode is active.
+> - **Confined Space Obstacle Avoidance Tuning (`SET_CONFINED_SPACE_MODE`):** Tunes PerceptionManager obstacle avoidance brake distance down to **1.0m – 1.5m** (from 10.0m default) for narrow doorways and corridor navigation.
+>
+> **Changelog — 2026-08-06 (MQTT Drone Tasking Engine, Queueing, Cancellation & S3 Upload Status Events)**
+> - **MQTT Drone Tasking Engine (`START_TASK`, `QUEUE_TASK`, `CANCEL_TASK`, `CANCEL_ALL_TASKS`, `CLEAR_TASK_QUEUE`):** Integrated full C2 task lifecycle management. Supports string task identifiers (`task_id_101`), sequential task queueing (`ConcurrentLinkedQueue`), and task cancellation.
+> - **Auto-Generated Task Storage Folders:** Task assignment automatically auto-generates matching local device download directory (`Pictures/{taskId}`) and Ceph S3 target subfolder (`http://192.168.180.99:8000/data-primary/drone/isr_tasking/captured/{taskId}/`) with `.keep` marker objects.
+> - **Real-time Telemetry & S3 Upload Event Broadcasts:** Injected `"taskId"` and `"queuedTasksCount"` into 10 Hz real-time telemetry. Added structured S3 upload events (`UPLOAD_START`, `UPLOAD_SUCCESS`, `UPLOAD_FAILED`) and critical HUD alerts (`HTTP 403 S3 Auth Error`, `S3 Endpoint Unreachable`).
+>
+> **Changelog — 2026-08-06 (MQTT Remote S3 & Folder Creation Commands)**
+> - **MQTT Remote Folder Creation (`CREATE_FOLDER`):** Added C2 command `CREATE_FOLDER` / `CREATE_S3_FOLDER` to explicitly create local download directories and Ceph S3 remote storage subfolders (`.keep` marker object) over MQTT (`dji-sdk/fleet/{clientId}/command`).
+> - **MQTT Remote Storage Config (`SET_S3_CONFIG`):** Enabled updating S3 Endpoint URL, Access Key, Secret Key, Region, S3 Target Subfolder (`AUTO` vs `CUSTOM`), Local Download Folder, and ISR Mode (`MODE1`, `MODE2`, `NONE`) dynamically over MQTT.
+> - **BT-Prod S3 Storage Endpoint & Credentials:** Updated default S3 endpoint to `http://192.168.180.99:8000/data-primary/drone/isr_tasking/captured` under `data-primary` bucket with region `BT` and user `dji-sdk`.
+> - **AWS SigV4 HMAC-SHA256 Signing:** Integrated native AWS Signature Version 4 HMAC-SHA256 request signing in `S3UploadManager.kt` using configured Access Key (`0RUUD1YOR1DLRQN2WF7H`) and Secret Key (`hfGxYhmhBjNL41NUecqyGev5a77H29JfO0DAEkBs`).
+>
+> **Changelog — 2026-08-06 (MQTT Multi-Route Commands, Clear Isolation, ISR Modes, S3 Storage & ATAK UI)**
+> - **Multi-Route C2 Commands & Selective Route Management:** Added `CREATE_ROUTE`, `SELECT_ROUTE`, `DELETE_ROUTE`, `TOGGLE_ROUTE_VISIBILITY`, and `EXECUTE_ROUTE` for itemized multi-route control (`Waypoint_1`, `Waypoint_2`, etc.) over MQTT.
+> - **Clear Map vs Clear KMZ Isolation:** Standardized `CLEAR_MAP` (Master clear resetting all map overlays and queues) vs `CLEAR_KMZ` (isolated KMZ route removal preserving user tactical waypoints).
+> - **MQTT Connection & URI Sanitization:** Hardened `MqttService.kt` and `MainActivity.kt` URI parsing. Automatically strips duplicate protocol prefixes (e.g. `tcp://tcp://`) and handles `ssl://`, `ws://`, `wss://` cleanly.
+> - **Detailed MQTT Error Reporting:** Added `onErrorOccurred` callback in `MqttService.kt` wired directly to `MainActivity.kt` UI toasts and system log for instant diagnostic feedback.
+> - **Unified SharedPreferences:** Standardized `SharedPreferences` access (`"TacticalHUDConfig"`, `MODE_PRIVATE`) across `MainActivity` and `MqttService` to eliminate credential reading mismatches.
+> - **ISR Modes & S3 Integration:** Bound `btnIsrModeToggle`, `etS3ServerUrl`, and `btnTriggerS3Sync` in `dialog_system.xml` and `MainActivity.kt`. Integrated `S3UploadManager.kt` supporting custom endpoints (`http://192.168.180.99:8000/data-primary/drone/isr_tasking/captured`), ISR Mode 1 (High-Res S3 Direct Stream), and ISR Mode 2 (Post-Flight Auto Sync on Land).
+> - **ATAK UI & OSD Reticle Rework:** Redesigned UI reticle to Option A: Military UAV OSD Boresight crosshair with milliradian tick marks and center precision dot. Modernized System Settings, Mapping, WebODM, and Waypoint dialogs with ATAK dark-glass card layouts (`bg_atak_panel`).
+>
 > **Changelog — 2026-07-28 (Audit #16 Topic Namespace Standardization & AR Thread Safety)**
 > - Standardized backend (`server.js`) and frontend web UI (`App.jsx`) MQTT topic subscriptions and command publishing strictly to the `dji-sdk/fleet/` namespace (eliminating legacy `avarell/fleet/` and `tactical/fleet/` mismatches).
 > - Hardened thread safety in `ARLandingOverlayView.kt` by replacing `invalidate()` with `postInvalidate()` to prevent `CalledFromWrongThreadException` crashes when invoked from background telemetry/vision threads.
@@ -350,6 +387,13 @@ The drone parses the `command` key to determine the action to execute.
 | `SET_HOME` | — | — | Set the drone's current GPS position as the new Home Point. |
 | `ADD_WAYPOINT` | `lat`, `lon` | `alt`, `speed`, `heading`, `dwellTime`, `actionType`, `poiLat`, `poiLng`, `gimbalPitch`, `movementMethod` | Appends a single waypoint to the drone's active mission queue. Does not execute. |
 | `UPLOAD_MISSION` | `waypoints` (Array) | *(see Waypoint Dictionary)* | Replaces the entire mission queue with a new waypoint array. Does not execute. |
+| `CREATE_ROUTE` | `route_name` | `waypoints` (Array), `color` (String/Int) | Creates a distinct named route profile (`Waypoint_1`, `Waypoint_2`, etc.). |
+| `SELECT_ROUTE` | `route_name` | — | Switches the active route profile by name. |
+| `DELETE_ROUTE` | `route_name` | — | Selectively deletes a specific named route layer from the map and queue without wiping other routes. |
+| `TOGGLE_ROUTE_VISIBILITY` | `route_name`, `visible` | — | Shows or hides a specific named route on the map canvas (`visible: true/false`). |
+| `EXECUTE_ROUTE` | — | `route_name` (String), `routes` (Array) | Starts executing a specific named route or chained list of routes. |
+| `CLEAR_MAP` | — | — | Master reset: completely erases all map overlays, markers, polylines, polygons, and queues. |
+| `CLEAR_KMZ` | — | — | Isolated clear: removes imported KMZ polylines and KMZ markers only; preserves user tactical waypoints. |
 | `RENAME_WAYPOINT` | `new_name` | `index` (Int), `name` (String) | Renames an existing waypoint matched by index or its current name. |
 | `UPDATE_WAYPOINT` | — | `index` (Int), `name` (String) + any parameters to update | Modifies flight parameters of a specific waypoint. |
 | `EXECUTE_MISSION` | — | — | Starts flying the loaded waypoint queue via Virtual Stick Engine. |

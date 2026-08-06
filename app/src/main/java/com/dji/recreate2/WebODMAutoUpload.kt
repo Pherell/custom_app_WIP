@@ -15,6 +15,8 @@ import dji.v5.manager.datacenter.MediaDataCenter
 import dji.v5.manager.datacenter.media.MediaFile
 import dji.v5.common.callback.CommonCallbacks
 import dji.v5.common.error.IDJIError
+import dji.sdk.keyvalue.key.KeyTools
+import dji.v5.manager.KeyManager
 
 object WebODMAutoUpload {
 
@@ -101,14 +103,21 @@ object WebODMAutoUpload {
         
         if (mediaManager == null) {
             Log.e(TAG, "MediaManager is null. Drone not connected or doesn't support playback.")
+            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                android.widget.Toast.makeText(context, "⚠️ ALERT: Camera storage unreadable or drone disconnected!", android.widget.Toast.LENGTH_LONG).show()
+            }
             isDownloading = false
             return
         }
         
+        pullMediaListInternal(context, mediaManager, missionStartTime, missionEndTime)
+    }
+
+    private fun pullMediaListInternal(context: Context, mediaManager: dji.v5.manager.interfaces.IMediaManager, missionStartTime: Long, missionEndTime: Long) {
         val param = dji.v5.manager.datacenter.media.PullMediaFileListParam.Builder().build()
         mediaManager.pullMediaFileListFromCamera(param, object : CommonCallbacks.CompletionCallback {
             override fun onSuccess() {
-                val fileList = mediaManager.mediaFileListData.data
+                val fileList = mediaManager.mediaFileListData.data ?: emptyList()
                 val photoFiles = fileList.filter { mediaFile -> 
                     val isImage = mediaFile.fileName.endsWith(".jpg", ignoreCase = true) || mediaFile.fileName.endsWith(".jpeg", ignoreCase = true)
                     
@@ -137,6 +146,9 @@ object WebODMAutoUpload {
                 
                 if (photoFiles.isEmpty()) {
                     Log.d(TAG, "No photos found on drone.")
+                    android.os.Handler(android.os.Looper.getMainLooper()).post {
+                        android.widget.Toast.makeText(context, "⚠️ ALERT: No media files found in camera storage to sync!", android.widget.Toast.LENGTH_LONG).show()
+                    }
                     isDownloading = false
                     return
                 }
@@ -147,6 +159,9 @@ object WebODMAutoUpload {
             
             override fun onFailure(error: IDJIError) {
                 Log.e(TAG, "Failed to pull media file list: ${error.description()}")
+                android.os.Handler(android.os.Looper.getMainLooper()).post {
+                    android.widget.Toast.makeText(context, "⚠️ ALERT: Media fetch failed: ${error.description()}", android.widget.Toast.LENGTH_LONG).show()
+                }
                 isDownloading = false
             }
         })
