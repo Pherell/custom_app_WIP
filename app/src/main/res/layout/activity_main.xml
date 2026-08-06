@@ -19,6 +19,17 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent" />
 
+    <!-- OBJECT TRACKING OVERLAY FOR HUMAN / VEHICLE TARGET LOCK -->
+    <com.dji.recreate2.ObjectTrackingOverlayView
+        android:id="@+id/objectTrackingOverlay"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:visibility="visible"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent" />
+
     <!-- PIP SECONDARY CAMERA FEED (e.g. THERMAL) -->
     <SurfaceView
         android:id="@+id/pipSurface"

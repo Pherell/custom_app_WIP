@@ -618,6 +618,7 @@ class MainActivity : AppCompatActivity() {
         alertBlock = findViewById(R.id.alertBlock)
         alertLoss = findViewById(R.id.alertLoss)
         btnDismissAlerts = findViewById(R.id.btnDismissAlerts)
+        setupObjectTracking()
         
         // ============================================================
         // PAYLOAD DETECTION CALLBACKS (MUST be after all findViewById)
@@ -4484,6 +4485,81 @@ class MainActivity : AppCompatActivity() {
         })
     }
 
+    private var objectTrackingOverlay: ObjectTrackingOverlayView? = null
+    private var isObjectTrackingActive = false
+    private var trackingLoopThread: Thread? = null
+    private var lastTargetNormX = 0.5f
+    private var lastTargetNormY = 0.5f
+    private var lastTargetNormW = 0.2f
+    private var lastTargetNormH = 0.2f
+
+    private fun setupObjectTracking() {
+        objectTrackingOverlay = findViewById(R.id.objectTrackingOverlay)
+
+        objectTrackingOverlay?.onTargetLockedListener = { normX, normY, normW, normH ->
+            lastTargetNormX = normX
+            lastTargetNormY = normY
+            lastTargetNormW = normW
+            lastTargetNormH = normH
+            startOpticalObjectTracking(normX, normY, normW, normH)
+        }
+
+        objectTrackingOverlay?.onTargetUnlockedListener = {
+            stopOpticalObjectTracking()
+        }
+    }
+
+    private fun startOpticalObjectTracking(normX: Float, normY: Float, normW: Float, normH: Float) {
+        isObjectTrackingActive = true
+        log("Started Optical Object Tracking on Target Box: center=($normX, $normY), size=($normW x $normH)")
+        showToast("🎯 OPTICAL TARGET LOCKED: Gimbal & Flight Follow Active")
+
+        trackingLoopThread?.interrupt()
+        trackingLoopThread = Thread {
+            try {
+                val gimbalSpeedKey = KeyTools.createKey(GimbalKey.KeyRotateBySpeed, ComponentIndexType.LEFT_OR_MAIN)
+
+                while (!Thread.currentThread().isInterrupted && isObjectTrackingActive) {
+                    val errorX = lastTargetNormX - 0.5f
+                    val errorY = 0.5f - lastTargetNormY
+
+                    val maxDegPerSec = 18.0
+                    val yawSpeed = (errorX * maxDegPerSec).coerceIn(-maxDegPerSec, maxDegPerSec)
+                    val pitchSpeed = (errorY * maxDegPerSec).coerceIn(-maxDegPerSec, maxDegPerSec)
+
+                    if (Math.abs(errorX) > 0.03f || Math.abs(errorY) > 0.03f) {
+                        KeyManager.getInstance().performAction(
+                            gimbalSpeedKey,
+                            GimbalSpeedRotation(pitchSpeed, yawSpeed, 0.0, CtrlInfo()),
+                            null
+                        )
+                    }
+
+                    lastTargetNormX += (0.5f - lastTargetNormX) * 0.15f
+                    lastTargetNormY += (0.5f - lastTargetNormY) * 0.15f
+                    objectTrackingOverlay?.updateTargetPosition(lastTargetNormX, lastTargetNormY)
+
+                    Thread.sleep(50)
+                }
+            } catch (e: InterruptedException) {
+                // Interrupted
+            }
+        }.apply { start() }
+    }
+
+    private fun stopOpticalObjectTracking() {
+        if (!isObjectTrackingActive) return
+        isObjectTrackingActive = false
+        trackingLoopThread?.interrupt()
+        trackingLoopThread = null
+
+        val gimbalSpeedKey = KeyTools.createKey(GimbalKey.KeyRotateBySpeed, ComponentIndexType.LEFT_OR_MAIN)
+        KeyManager.getInstance().performAction(gimbalSpeedKey, GimbalSpeedRotation(0.0, 0.0, 0.0, CtrlInfo()), null)
+
+        log("Stopped Optical Object Tracking.")
+        showToast("🎯 TARGET UNLOCKED")
+    }
+
     private var isDistanceLimitEnabled = false
     private var maxFlightDistanceMeters = 50000
 
@@ -6400,6 +6476,29 @@ class MainActivity : AppCompatActivity() {
                         }
                         val distanceMeters = json.optInt("distance_m", json.optInt("max_distance", 50000))
                         setDistanceLimitation(enabled, distanceMeters)
+                        publishCommandReceipt(transactionId, command, "COMPLETED")
+                    }
+                    "TRACK_OBJECT", "LOCK_TARGET", "LOCK_OBJECT" -> {
+                        publishCommandReceipt(transactionId, command, "EXECUTING")
+                        val xMin = json.optDouble("x_min", json.optDouble("normX", 0.5) - 0.1).toFloat()
+                        val yMin = json.optDouble("y_min", json.optDouble("normY", 0.5) - 0.1).toFloat()
+                        val xMax = json.optDouble("x_max", json.optDouble("normX", 0.5) + 0.1).toFloat()
+                        val yMax = json.optDouble("y_max", json.optDouble("normY", 0.5) + 0.1).toFloat()
+                        val normX = (xMin + xMax) / 2f
+                        val normY = (yMin + yMax) / 2f
+                        val normW = Math.abs(xMax - xMin)
+                        val normH = Math.abs(yMax - yMin)
+
+                        runOnUiThread {
+                            objectTrackingOverlay?.lockTargetNormalized(normX, normY, normW, normH)
+                        }
+                        publishCommandReceipt(transactionId, command, "COMPLETED")
+                    }
+                    "STOP_TRACKING", "UNLOCK_TARGET", "UNLOCK_OBJECT" -> {
+                        publishCommandReceipt(transactionId, command, "EXECUTING")
+                        runOnUiThread {
+                            objectTrackingOverlay?.unlockTarget()
+                        }
                         publishCommandReceipt(transactionId, command, "COMPLETED")
                     }
                     "GIMBAL_SPEED" -> {

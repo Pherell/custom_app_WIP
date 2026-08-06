@@ -1,5 +1,10 @@
 # Tactical Drone C2 Server Specification
 
+> **Changelog — 2026-08-06 (Touch-and-Drag Optical Object Lock & Target Tracking Engine)**
+> - **Tactical Object Tracking Overlay (`ObjectTrackingOverlayView.kt`):** Implemented touch-and-drag bounding box selection and single-tap quick object locking on live camera feed for security missions (humans, vehicles, intruders, animals). Renders tactical green corner reticles and status label overlays.
+> - **Closed-Loop Proportional Gimbal Speed Centering (`startOpticalObjectTracking`):** Runs a 20Hz PID control feedback loop calculating target offset $(\Delta x, \Delta y)$ from optical center and sending proportional angular velocity commands (`KeyRotateBySpeed`) to keep the target centered in optical crosshairs.
+> - **Remote C2 MQTT Commands:** Added C2 JSON command handlers over `dji-sdk/fleet/{clientId}/command`: `TRACK_OBJECT`, `LOCK_TARGET`, `LOCK_OBJECT` (with payload `{"x_min": 0.3, "y_min": 0.2, "x_max": 0.7, "y_max": 0.8}`) and `STOP_TRACKING`, `UNLOCK_TARGET`, `UNLOCK_OBJECT`.
+>
 > **Changelog — 2026-08-06 (Unlimited Distance Limitation Control & C2 Overrides)**
 > - **Unlimited Distance Control (`setDistanceLimitation`):** Implemented distance limitation bypass engine (`dji.sdk.keyvalue.key.FlightControllerKey.KeyDistanceLimitEnabled` and `KeyDistanceLimit`). Allows switching flight radius mode between **UNLIMITED (NO LIMITATION)** and custom distance limits (e.g. 50,000m).
 > - **System Dialog & MQTT C2 Controls:** Added **`[ 🌐 DISTANCE LIMIT: UNLIMITED (NO LIMIT) ]`** toggle button in System Dialog and C2 MQTT command handlers (`SET_DISTANCE_LIMIT`, `UNLIMITED_DISTANCE`, `REMOVE_DISTANCE_LIMIT`, `DISABLE_DISTANCE_LIMIT`).
