@@ -1,5 +1,10 @@
 # Tactical Drone C2 Server Specification
 
+> **Changelog — 2026-08-06 (DEL & FOL Tactical HUD Buttons for Object Selection & Follow)**
+> - **Tactical HUD Controls (`DEL` & `FOL`):** Added circular HUD quick-action buttons below **RES** (Reset Zoom) on the main FPV layout:
+>   - **`DEL` (Delete Selection / Unlock):** Clears active target bounding box overlay and releases optical tracking.
+>   - **`FOL` (Follow Object / Activate Tracking):** Activates / toggles autonomous object following & gimbal PID centering on the target object (or locks center-screen object if none selected).
+>
 > **Changelog — 2026-08-06 (External AI Vision C2 MQTT API for Remote Lock, Focus & Follow)**
 > - **External AI Computer Vision Control over MQTT:** Enabled external AI agents (YOLO, MediaPipe, OpenCV, Ground Station AI) reading the RTMP stream to remotely lock, focus, and follow detected objects (humans, cars, boats, security targets) in real-time.
 > - **New C2 Commands:**

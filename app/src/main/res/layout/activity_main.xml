@@ -501,7 +501,11 @@
                 <!-- Circular Gimbal Reset Button -->
                 <TextView android:id="@+id/btnCenterGimbal" android:layout_width="28dp" android:layout_height="28dp" android:text="GMB" android:textColor="#00FF00" android:textSize="8sp" android:textStyle="bold" android:gravity="center" android:background="@drawable/bg_circle_green" android:layout_marginBottom="4dp"/>
                 <!-- Circular Reset Zoom Button -->
-                <TextView android:id="@+id/btnResetZoom" android:layout_width="28dp" android:layout_height="28dp" android:text="RES" android:textColor="#00FF00" android:textSize="8sp" android:textStyle="bold" android:gravity="center" android:background="@drawable/bg_circle_green"/>
+                <TextView android:id="@+id/btnResetZoom" android:layout_width="28dp" android:layout_height="28dp" android:text="RES" android:textColor="#00FF00" android:textSize="8sp" android:textStyle="bold" android:gravity="center" android:background="@drawable/bg_circle_green" android:layout_marginBottom="4dp"/>
+                <!-- Circular Delete Selection Button -->
+                <TextView android:id="@+id/btnDeleteSelection" android:layout_width="28dp" android:layout_height="28dp" android:text="DEL" android:textColor="#FF3333" android:textSize="8sp" android:textStyle="bold" android:gravity="center" android:background="@drawable/bg_circle_green" android:layout_marginBottom="4dp"/>
+                <!-- Circular Follow Object Button -->
+                <TextView android:id="@+id/btnFollowObject" android:layout_width="28dp" android:layout_height="28dp" android:text="FOL" android:textColor="#00FF66" android:textSize="8sp" android:textStyle="bold" android:gravity="center" android:background="@drawable/bg_circle_green"/>
             </LinearLayout>
             
             <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content" android:orientation="vertical">

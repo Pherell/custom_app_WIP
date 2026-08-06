@@ -1302,6 +1302,18 @@ class MainActivity : AppCompatActivity() {
         
         findViewById<TextView>(R.id.btnCenterGimbal).setOnClickListener { centerGimbal() }
         findViewById<TextView>(R.id.btnResetZoom)?.setOnClickListener { resetZoom() }
+        findViewById<TextView>(R.id.btnDeleteSelection)?.setOnClickListener {
+            objectTrackingOverlay?.unlockTarget()
+            showToast("🎯 Target Selection Cleared (DEL)")
+        }
+        findViewById<TextView>(R.id.btnFollowObject)?.setOnClickListener {
+            if (isObjectTrackingActive) {
+                showToast("🎯 Object Following Active (FOL)")
+            } else {
+                objectTrackingOverlay?.lockTargetNormalized(0.5f, 0.5f, 0.2f, 0.2f)
+                showToast("🎯 Object Follow Activated on Center Target (FOL)")
+            }
+        }
         findViewById<TextView>(R.id.btnToggleJoysticks).setOnClickListener { toggleJoysticks() }
         findViewById<TextView>(R.id.btnSystem).setOnClickListener { showSystemDialog() }
 
