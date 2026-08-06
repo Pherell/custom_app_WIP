@@ -806,8 +806,6 @@ class MainActivity : AppCompatActivity() {
         val btnModeMap = findViewById<TextView>(R.id.btnModeMap)
         val btnModeShape = findViewById<TextView>(R.id.btnModeShape)
         val btnModeWaypoint = findViewById<TextView>(R.id.btnModeWaypoint)
-        val btnGpsTags = findViewById<TextView>(R.id.btnGpsTags)
-        btnGpsTags?.setOnClickListener { showGpsTaggingDialog() }
         val btnGenerateGrid = findViewById<TextView>(R.id.btnGenerateGrid)
         val btnSyncWebOdm = findViewById<TextView>(R.id.btnSyncWebOdm)
         val btnStartKmz = findViewById<TextView>(R.id.btnStartKmz)
@@ -1318,6 +1316,26 @@ class MainActivity : AppCompatActivity() {
         }
         findViewById<TextView>(R.id.btnTgpLock)?.setOnClickListener {
             toggleTargetingPodLock()
+        }
+        findViewById<TextView>(R.id.btnTagLocation)?.setOnClickListener {
+            val tLat = if (isTgpGeoLockActive) tgpTargetLat else droneLat
+            val tLon = if (isTgpGeoLockActive) tgpTargetLon else droneLon
+            val tAlt = if (isTgpGeoLockActive) tgpTargetAlt else droneAlt
+
+            if (tLat == 0.0 && tLon == 0.0) {
+                showToast("⚠️ Cannot tag: Waiting for GPS fix...")
+            } else {
+                val item = GpsTaggingManager.addTag(
+                    this,
+                    if (isTgpGeoLockActive) "TGP_TARGET" else "DRONE_POS",
+                    tLat,
+                    tLon,
+                    tAlt,
+                    if (isTgpGeoLockActive) "TGP_GEO_LOCK" else "DRONE_GPS"
+                )
+                updateGpsTagsOnMap()
+                showToast("📍 TAGGED LOCATION [${item.id}]: ${String.format("%.5f", tLat)}, ${String.format("%.5f", tLon)}")
+            }
         }
         findViewById<TextView>(R.id.btnToggleJoysticks).setOnClickListener { toggleJoysticks() }
         findViewById<TextView>(R.id.btnSystem).setOnClickListener { showSystemDialog() }
@@ -4654,6 +4672,46 @@ class MainActivity : AppCompatActivity() {
         }.apply { start() }
     }
 
+    private val gpsTagMapMarkers = mutableListOf<org.osmdroid.views.overlay.Marker>()
+
+    private fun updateGpsTagsOnMap() {
+        if (!::mapView.isInitialized) return
+
+        for (m in gpsTagMapMarkers) {
+            mapView.overlays.remove(m)
+        }
+        gpsTagMapMarkers.clear()
+
+        val tags = GpsTaggingManager.getTags(this)
+        for (tag in tags) {
+            val marker = org.osmdroid.views.overlay.Marker(mapView).apply {
+                position = GeoPoint(tag.latitude, tag.longitude)
+                title = "${tag.id}: ${tag.name}"
+                snippet = "Lat: ${String.format("%.5f", tag.latitude)}, Lon: ${String.format("%.5f", tag.longitude)}\nAlt: ${String.format("%.1f", tag.altitude)}m [TGP/POI]"
+                setAnchor(org.osmdroid.views.overlay.Marker.ANCHOR_CENTER, org.osmdroid.views.overlay.Marker.ANCHOR_BOTTOM)
+
+                val yellowDrawable = android.graphics.drawable.GradientDrawable().apply {
+                    shape = android.graphics.drawable.GradientDrawable.OVAL
+                    setColor(android.graphics.Color.parseColor("#FFFF00"))
+                    setStroke(4, android.graphics.Color.BLACK)
+                    setSize(36, 36)
+                }
+                icon = yellowDrawable
+
+                setOnMarkerClickListener { _, _ ->
+                    showInfoWindow()
+                    toggleTargetingPodLock(tag.latitude, tag.longitude, tag.altitude)
+                    showToast("🎯 TGP Geo-Lock Engaged on Saved Tag: ${tag.id}")
+                    true
+                }
+            }
+            mapView.overlays.add(marker)
+            gpsTagMapMarkers.add(marker)
+        }
+
+        mapView.invalidate()
+    }
+
     private fun showGpsTaggingDialog() {
         val dialogView = layoutInflater.inflate(R.layout.dialog_gps_tagging, null)
         val dialog = android.app.AlertDialog.Builder(this)
@@ -4671,6 +4729,7 @@ class MainActivity : AppCompatActivity() {
         fun refreshTagList() {
             containerGpsTags.removeAllViews()
             val tags = GpsTaggingManager.getTags(this)
+            updateGpsTagsOnMap()
 
             if (tags.isEmpty()) {
                 val emptyTv = android.widget.TextView(this).apply {
@@ -5709,6 +5768,12 @@ class MainActivity : AppCompatActivity() {
         btnWebOdmConfig?.setOnClickListener {
             dialog.dismiss()
             showWebOdmConfigDialog()
+        }
+
+        val btnGpsTagsConfig = dialog.findViewById<android.widget.Button>(R.id.btnGpsTagsConfig)
+        btnGpsTagsConfig?.setOnClickListener {
+            dialog.dismiss()
+            showGpsTaggingDialog()
         }
 
         // CONFINED SPACE & GPS-DENIED FLIGHT BINDS

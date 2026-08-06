@@ -1,8 +1,8 @@
 # Tactical Drone C2 Server Specification
 
-> **Changelog — 2026-08-06 (Tactical GPS Target Intel Tagging & POI Locking List)**
-> - **GPS Tagging Manager (`GpsTaggingManager.kt`):** Implemented persistent storage and management for ISR target coordinates (`TAG-001`, `TAG-002`). Supports tagging current drone GPS location or LRF / Targeting Pod ground intersection points.
-> - **Target Intel Dialog (`dialog_gps_tagging.xml` & `btnGpsTags`):** Added a new **`TAGS`** button in the main bottom navigation bar. Opens the Tactical GPS Target Intel Dialog where operators can view, delete, or tap **`[ 🎯 LOCK POI/TGP ]`** on any saved target coordinate to instantly lock the camera gimbal and flight POI trajectory onto that specific target.
+> **Changelog — 2026-08-06 (TAG Circular HUD Button for Target Geolocation Tagging)**
+> - **`TAG` Circular HUD Button:** Added circular **`TAG`** button directly below **`LCK`** on the main FPV layout. Pressing **`TAG`** instantly tags the current LRF ground target or drone GPS coordinate, stores it in `GpsTaggingManager`, and draws a **Yellow POI Marker Pin** (`#FFFF00`) on the strategy map.
+> - **GPS Target Intel Tab inside System Settings:** Positioned the GPS Target Intel dialog launcher inside System Config (`btnGpsTagsConfig`: `📍 GPS TARGET INTEL & TAGS`).
 >
 > **Changelog — 2026-08-06 (Military-Grade Targeting Pod Line-of-Sight Geo-Lock & Tagging Engine)**
 > - **Targeting Pod Line-of-Sight Geo-Lock (`toggleTargetingPodLock`):** Implemented military-style Targeting Pod (TGP) Geo-Lock engine. Calculates real-time ground raycast intersection $(\text{Lat}_t, \text{Lon}_t, \text{Alt}_t)$ and runs a 10Hz 3D vector gimbal angle rotation loop (`dji.sdk.keyvalue.key.GimbalKey.KeyRotateByAngle`). Camera remains **100% locked onto the physical ground coordinate** as the drone maneuvers, turns, or flies.

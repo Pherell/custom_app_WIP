@@ -527,6 +527,16 @@
                     android:layout_marginBottom="8dp" />
 
                 <Button
+                    android:id="@+id/btnGpsTagsConfig"
+                    android:layout_width="match_parent"
+                    android:layout_height="40dp"
+                    android:text="📍 GPS TARGET INTEL &amp; TAGS (SAVED COORDS)"
+                    android:textColor="#FFFF00"
+                    android:textSize="12sp"
+                    android:background="@drawable/bg_glass_btn"
+                    android:layout_marginBottom="8dp" />
+
+                <Button
                     android:id="@+id/btnWebOdmConfig"
                     android:layout_width="match_parent"
                     android:layout_height="40dp"

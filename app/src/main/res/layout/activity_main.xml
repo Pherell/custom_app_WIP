@@ -507,7 +507,9 @@
                 <!-- Circular Follow Object Button -->
                 <TextView android:id="@+id/btnFollowObject" android:layout_width="28dp" android:layout_height="28dp" android:text="FOL" android:textColor="#00FF66" android:textSize="8sp" android:textStyle="bold" android:gravity="center" android:background="@drawable/bg_circle_green" android:layout_marginBottom="4dp"/>
                 <!-- Circular Targeting Pod Geo-Lock Button -->
-                <TextView android:id="@+id/btnTgpLock" android:layout_width="28dp" android:layout_height="28dp" android:text="LCK" android:textColor="#FFFF00" android:textSize="8sp" android:textStyle="bold" android:gravity="center" android:background="@drawable/bg_circle_green"/>
+                <TextView android:id="@+id/btnTgpLock" android:layout_width="28dp" android:layout_height="28dp" android:text="LCK" android:textColor="#FFFF00" android:textSize="8sp" android:textStyle="bold" android:gravity="center" android:background="@drawable/bg_circle_green" android:layout_marginBottom="4dp"/>
+                <!-- Circular Tag Location Button -->
+                <TextView android:id="@+id/btnTagLocation" android:layout_width="28dp" android:layout_height="28dp" android:text="TAG" android:textColor="#00FFFF" android:textSize="8sp" android:textStyle="bold" android:gravity="center" android:background="@drawable/bg_circle_green"/>
             </LinearLayout>
             
             <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content" android:orientation="vertical">
@@ -603,23 +605,6 @@
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintStart_toEndOf="@id/btnOrbit" />
 
-    <!-- GPS TAGGING & INTEL DIALOG BUTTON -->
-    <TextView
-        android:id="@+id/btnGpsTags"
-        android:layout_width="45dp"
-        android:layout_height="24dp"
-        android:text="TAGS"
-        android:textColor="#FFFF00"
-        android:textSize="10sp"
-        android:textStyle="bold"
-        android:fontFamily="monospace"
-        android:background="@drawable/bg_glass_btn"
-        android:gravity="center"
-        android:layout_marginBottom="16dp"
-        android:layout_marginStart="8dp"
-        app:layout_constraintBottom_toBottomOf="parent"
-        app:layout_constraintStart_toEndOf="@id/btnModePOI" />
-
     <!-- WAYPOINT MODE BUTTON -->
     <TextView
         android:id="@+id/btnModeWaypoint"
@@ -635,7 +620,7 @@
         android:layout_marginBottom="16dp"
         android:layout_marginStart="8dp"
         app:layout_constraintBottom_toBottomOf="parent"
-        app:layout_constraintStart_toEndOf="@id/btnGpsTags" />
+        app:layout_constraintStart_toEndOf="@id/btnModePOI" />
 
     <!-- ROUTE MANAGER BUTTON -->
     <TextView
