@@ -184,6 +184,13 @@ class MainActivity : AppCompatActivity() {
     @Volatile private var droneVx = 0.0
     @Volatile private var droneVy = 0.0
     @Volatile private var droneVz = 0.0
+    @Volatile private var isDeadReckoningActive = false
+    private var lastGpsFixTime = 0L
+    private var deadReckoningLastTime = 0L
+    private var curVx = 0.0
+    private var curVy = 0.0
+    private var curVz = 0.0
+    private var satelliteCount = 0
     @Volatile private var rtkSupported = false
     @Volatile private var droneGpsFixType = "NO_GPS"
     private var healthChangeListener: dji.v5.manager.diagnostic.DJIDeviceHealthInfoChangeListener? = null
@@ -3681,20 +3688,83 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        // Satellite count listener
+        val satsKey = KeyTools.createKey(FlightControllerKey.KeyGPSSatelliteCount)
+        KeyManager.getInstance().listen(satsKey, this) { _, count: Int? ->
+            if (count != null) {
+                satelliteCount = count
+            }
+        }
+
+        // 3D Velocity Vector Listener (IMU / Downward VPS Optical Flow / Barometer)
+        val velKey = KeyTools.createKey(FlightControllerKey.KeyAircraftVelocity)
+        KeyManager.getInstance().listen(velKey, this) { _, vel ->
+            if (vel != null) {
+                curVx = (vel.x ?: 0).toDouble() // North m/s
+                curVy = (vel.y ?: 0).toDouble() // East m/s
+                curVz = (vel.z ?: 0).toDouble() // Up m/s
+                droneVx = curVx
+                droneVy = curVy
+                droneVz = curVz
+                droneSpeed = Math.sqrt(curVx * curVx + curVy * curVy)
+
+                val now = System.currentTimeMillis()
+                val dtSec = if (deadReckoningLastTime > 0) (now - deadReckoningLastTime) / 1000.0 else 0.0
+                deadReckoningLastTime = now
+
+                // If GPS is lost or sat count < 6 mid-flight -> IMU + VPS Dead Reckoning Navigation Active
+                val timeSinceLastGps = now - lastGpsFixTime
+                val gpsLost = (satelliteCount < 6 || timeSinceLastGps > 1500) && isFlying
+
+                if (gpsLost && dtSec > 0.005 && dtSec < 1.0) {
+                    if (!droneLat.isNaN() && !droneLon.isNaN()) {
+                        isDeadReckoningActive = true
+
+                        // WGS-84 Geodesic Dead Reckoning displacement math
+                        val deltaNorthMeters = curVx * dtSec
+                        val deltaEastMeters = curVy * dtSec
+                        val deltaUpMeters = curVz * dtSec
+
+                        val latRad = Math.toRadians(droneLat)
+                        val deltaLatDeg = deltaNorthMeters / 111132.92
+                        val deltaLonDeg = deltaEastMeters / (111412.84 * Math.cos(latRad))
+
+                        droneLat += deltaLatDeg
+                        droneLon += deltaLonDeg
+                        droneAlt += deltaUpMeters
+
+                        runOnUiThread {
+                            tvCoords.text = String.format(java.util.Locale.US, "NAV: %.5f, %.5f [DR IMU+VPS]", droneLat, droneLon)
+                            tvCoords.setTextColor(android.graphics.Color.parseColor("#FFB300")) // Amber warning
+                            updateDroneLocationOnMap(droneLat, droneLon)
+                        }
+                        updateARHomePoint()
+                    }
+                } else if (!gpsLost) {
+                    isDeadReckoningActive = false
+                }
+            }
+        }
+
         val locationKey = KeyTools.createKey(FlightControllerKey.KeyAircraftLocation)
         KeyManager.getInstance().listen(locationKey, this) { _, newValue ->
             newValue?.let {
-                if (!it.latitude.isNaN() && !it.longitude.isNaN()) {
+                if (!it.latitude.isNaN() && !it.longitude.isNaN() && it.latitude != 0.0 && it.longitude != 0.0) {
+                    lastGpsFixTime = System.currentTimeMillis()
                     if (!usingRTK) {
                         droneLat = it.latitude
                         droneLon = it.longitude
+                        isDeadReckoningActive = false
                         runOnUiThread { 
-                            tvCoords.text = String.format("NAV: %.5f, %.5f", it.latitude, it.longitude) 
+                            tvCoords.text = String.format(java.util.Locale.US, "NAV: %.5f, %.5f [GPS %dS]", it.latitude, it.longitude, satelliteCount) 
                             tvCoords.setTextColor(android.graphics.Color.WHITE)
                             updateDroneLocationOnMap(it.latitude, it.longitude)
                         }
                         updateARHomePoint()
                     }
+                }
+            }
+        }
                     
                     try {
                         val payload = org.json.JSONObject()
@@ -3829,13 +3899,10 @@ class MainActivity : AppCompatActivity() {
                     } catch (e: Exception) {
                         e.printStackTrace()
                     }
-                }
-            }
-        }
-        
-        KeyManager.getInstance().setValue(KeyTools.createKey(RtkMobileStationKey.KeyRTKEnable), true, null)
-        rtkLocationListener = dji.v5.manager.aircraft.rtk.RTKLocationInfoListener { rtkInfo ->
-            val solution = rtkInfo.rtkLocation?.positioningSolution
+
+            KeyManager.getInstance().setValue(KeyTools.createKey(RtkMobileStationKey.KeyRTKEnable), true, null)
+            rtkLocationListener = dji.v5.manager.aircraft.rtk.RTKLocationInfoListener { rtkInfo ->
+                val solution = rtkInfo.rtkLocation?.positioningSolution
             if (solution != null && solution != RTKPositioningSolution.NONE) {
                 rtkSupported = true
                 droneGpsFixType = when (solution) {

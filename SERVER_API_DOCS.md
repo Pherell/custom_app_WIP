@@ -1,5 +1,10 @@
 # Tactical Drone C2 Server Specification
 
+> **Changelog — 2026-08-06 (High-Precision 3D AR Projection & IMU/VPS Dead Reckoning Navigation)**
+> - **High-Precision 3D AR Pinhole Perspective Projection (`ARLandingOverlayView`):** Replaced linear angular subtraction with exact 3D camera transformation matrix (Body to Camera Frame) and pinhole perspective projection ($f_x = \frac{W}{2 \tan(\text{HFOV}/2)}$, $f_y = \frac{H}{2 \tan(\text{VFOV}/2)}$). Completely eliminates visual drift and random position jumping.
+> - **Low-Pass Exponential Moving Average (EMA) Temporal Filter:** Integrated real-time EMA low-pass filtering ($\alpha = 0.20$) on projected screen coordinates and target distance to smooth out sensor noise and prevent overlay jittering.
+> - **IMU + VPS Dead Reckoning Navigation Engine (`KeyAircraftVelocity`):** When GPS signal drops mid-flight (satellites $< 6$ or GPS loss), the system seamlessly switches to Dead Reckoning (DR) navigation using the drone's 3D IMU velocity vectors ($V_x, V_y, V_z$), downward Vision Positioning System (VPS), and barometric height sensors. Extrapolates WGS-84 geodesic latitude, longitude, and altitude until satellite lock is restored.
+>
 > **Changelog — 2026-08-06 (ISR Mode 1 Clean FPV Stream Recording, .SRT Telemetry & EXIF Mapping Metadata)**
 > - **Clean Raw FPV Video Stream Recording (`FpvStreamRecorder`):** ISR Mode 1 records raw FPV camera feed directly on tablet with zero HUD overlays, buttons, or telemetry text. Uploads `.mp4` video to S3 immediately upon pressing stop.
 > - **Toggleable Reticle Target Box & Compass Tape Overlays:** Added toggle buttons `btnToggleReticleOverlay` and `btnToggleCompassOverlay` in ISR Mode 1 settings. Allows user to toggle Target Reticle Box (green square) and top Compass Tape ON/OFF independently for both recording and streaming while keeping all non-tactical HUD UI (buttons/menus) excluded.

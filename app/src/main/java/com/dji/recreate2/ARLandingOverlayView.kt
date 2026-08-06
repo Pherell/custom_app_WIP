@@ -76,6 +76,12 @@ class ARLandingOverlayView @JvmOverloads constructor(
         typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
     }
 
+    // --- Exponential Moving Average (EMA) Low-Pass Filter State ---
+    private var filteredScreenX: Float = Float.NaN
+    private var filteredScreenY: Float = Float.NaN
+    private var filteredDistance: Double = Double.NaN
+    private val emaAlpha: Float = 0.20f // Smooths out sensor noise and prevents drift
+
     // --- Data Update API ---
     fun updateDronePose(lat: Double, lon: Double, alt: Double, heading: Double, pitch: Double) {
         this.droneLat = lat
@@ -83,7 +89,7 @@ class ARLandingOverlayView @JvmOverloads constructor(
         this.droneAlt = alt
         this.droneHeading = (heading % 360 + 360) % 360
         this.gimbalPitch = pitch
-        postInvalidate()
+        postInvalidateOnAnimation()
     }
 
     fun updateTargetLocation(lat: Double, lon: Double, alt: Double = 0.0, heading: Double? = null) {
@@ -91,7 +97,13 @@ class ARLandingOverlayView @JvmOverloads constructor(
         this.targetLon = lon
         this.targetAlt = alt
         this.targetHeading = heading
-        postInvalidate()
+        postInvalidateOnAnimation()
+    }
+
+    fun resetFilter() {
+        filteredScreenX = Float.NaN
+        filteredScreenY = Float.NaN
+        filteredDistance = Double.NaN
     }
 
     override fun onDraw(canvas: Canvas) {
@@ -108,59 +120,117 @@ class ARLandingOverlayView @JvmOverloads constructor(
         // 2. Validate Inputs
         if (droneLat.isNaN() || droneLon.isNaN() || targetLat.isNaN() || targetLon.isNaN()) {
             drawStatusBadge(canvas, 30f, 60f, "AR LANDING: WAITING FOR GPS")
+            resetFilter()
             return
         }
 
-        // 3. Distance and Bearing Math
-        val distance = calculateHaversineDistance(droneLat, droneLon, targetLat, targetLon)
-        val bearing = calculateBearing(droneLat, droneLon, targetLat, targetLon)
+        // 3. Precise Local Tangent Plane ENU (East-North-Up) Math
+        val latRad = Math.toRadians(droneLat)
+        val dLat = Math.toRadians(targetLat - droneLat)
+        val dLon = Math.toRadians(targetLon - droneLon)
+
+        // WGS-84 Geodesic distances in meters
+        val northMeters = dLat * 6378137.0
+        val eastMeters = dLon * 6378137.0 * cos(latRad)
+        val upMeters = targetAlt - droneAlt
+
+        val rawDistance = sqrt(northMeters * northMeters + eastMeters * eastMeters)
         val relativeAlt = droneAlt - targetAlt
 
-        // Relative Azimuth & Elevation Offset
-        var relAzimuth = bearing - droneHeading
+        // Smooth distance via EMA
+        if (filteredDistance.isNaN()) {
+            filteredDistance = rawDistance
+        } else {
+            filteredDistance += emaAlpha * (rawDistance - filteredDistance)
+        }
+
+        // Bearing to target relative to True North
+        val bearingRad = atan2(eastMeters, northMeters)
+        val headingRad = Math.toRadians(droneHeading)
+        val pitchRad = Math.toRadians(gimbalPitch) // -90 deg = down, 0 deg = horizon
+
+        // 4. 3D Coordinate Transformation to Camera Frame (Body -> Camera)
+        // Step A: Rotate ENU vector into Aircraft Body Frame (Forward, Right, Up)
+        val yawRel = bearingRad - headingRad
+        val xBody = rawDistance * sin(yawRel) // Right (+X)
+        val yBody = rawDistance * cos(yawRel) // Forward (+Y)
+        val zBody = -relativeAlt             // Up (+Z)
+
+        // Step B: Rotate Body Frame by Gimbal Pitch into Camera Optical Frame
+        // Xcam = Right, Ycam = Down, Zcam = Forward (depth)
+        val xCam = xBody
+        val yCam = yBody * sin(pitchRad) - zBody * cos(pitchRad)
+        val zCam = yBody * cos(pitchRad) + zBody * sin(pitchRad)
+
+        // Calculate Relative Azimuth & Pitch for Edge Pointer Fallback
+        var relAzimuth = Math.toDegrees(atan2(xBody, max(0.1, yBody)))
         while (relAzimuth > 180) relAzimuth -= 360
         while (relAzimuth < -180) relAzimuth += 360
 
-        // Elevation angle relative to horizon
-        val elevAngleDeg = Math.toDegrees(atan2(-relativeAlt, max(distance, 0.1)))
-        val relPitch = elevAngleDeg - gimbalPitch // Offset from current camera pitch center
+        val elevAngleDeg = Math.toDegrees(atan2(-relativeAlt, max(rawDistance, 0.1)))
+        val relPitch = elevAngleDeg - gimbalPitch
 
-        // Normalize to Screen Coordinates
-        val screenX = centerX + (relAzimuth / (cameraHFOV / 2.0) * centerX).toFloat()
-        val screenY = centerY - (relPitch / (cameraVFOV / 2.0) * centerY).toFloat()
+        // 5. True Pinhole Tangential Camera Perspective Projection
+        val isTargetInFront = zCam > 0.1
+        var isTargetVisible = false
+        var targetScreenX = centerX
+        var targetScreenY = centerY
 
-        val isTargetVisible = (screenX in 50f..(width - 50f)) && (screenY in 50f..(height - 50f))
+        if (isTargetInFront) {
+            val fx = centerX / tan(Math.toRadians(cameraHFOV / 2.0)).toFloat()
+            val fy = centerY / tan(Math.toRadians(cameraVFOV / 2.0)).toFloat()
+
+            val rawX = centerX + (fx * (xCam / zCam)).toFloat()
+            val rawY = centerY - (fy * (yCam / zCam)).toFloat()
+
+            // Apply EMA Low-Pass Filter to eliminate jitter and drift
+            if (filteredScreenX.isNaN() || filteredScreenY.isNaN()) {
+                filteredScreenX = rawX
+                filteredScreenY = rawY
+            } else {
+                filteredScreenX += emaAlpha * (rawX - filteredScreenX)
+                filteredScreenY += emaAlpha * (rawY - filteredScreenY)
+            }
+
+            targetScreenX = filteredScreenX
+            targetScreenY = filteredScreenY
+
+            // Bounds check inside view rectangle
+            isTargetVisible = (targetScreenX in 30f..(width - 30f)) && (targetScreenY in 30f..(height - 30f))
+        } else {
+            resetFilter()
+        }
 
         if (isTargetVisible) {
-            // Draw Projected 3D Bounding Target Box
-            val boxSize = max(40f, min(250f, (300f / max(distance, 1.0)).toFloat()))
+            // Draw High-Precision 3D Bounding Target Box
+            val boxSize = max(35f, min(220f, (280f / max(filteredDistance, 1.0)).toFloat()))
             val rect = RectF(
-                screenX - boxSize,
-                screenY - boxSize,
-                screenX + boxSize,
-                screenY + boxSize
+                targetScreenX - boxSize,
+                targetScreenY - boxSize,
+                targetScreenX + boxSize,
+                targetScreenY + boxSize
             )
-            canvas.drawRoundRect(rect, 16f, 16f, fillPaint)
-            canvas.drawRoundRect(rect, 16f, 16f, boxPaint)
+            canvas.drawRoundRect(rect, 14f, 14f, fillPaint)
+            canvas.drawRoundRect(rect, 14f, 14f, boxPaint)
 
             // Corner Accents
             drawCornerAccents(canvas, rect)
 
             // Target Label
-            canvas.drawText("LANDING PAD", screenX - 80f, screenY - boxSize - 15f, textPaint)
+            canvas.drawText("LANDING PAD", targetScreenX - 75f, targetScreenY - boxSize - 12f, textPaint)
 
             // Heading Adjustment Arrow if targetHeading specified
             targetHeading?.let { padHeading ->
                 val yawOffset = ((padHeading - droneHeading) % 360 + 360) % 360
-                drawHeadingArrow(canvas, screenX, screenY + boxSize + 35f, yawOffset.toFloat())
+                drawHeadingArrow(canvas, targetScreenX, targetScreenY + boxSize + 32f, yawOffset.toFloat())
             }
         } else {
             // Target is off-screen -> Draw Edge Pointer Indicator
             drawEdgePointer(canvas, centerX, centerY, relAzimuth.toFloat(), relPitch.toFloat(), width, height)
         }
 
-        // 4. Render Telemetry HUD Cards
-        drawTelemetryHUD(canvas, distance, relativeAlt, relAzimuth, isTargetVisible)
+        // 6. Render Telemetry HUD Cards
+        drawTelemetryHUD(canvas, filteredDistance, relativeAlt, relAzimuth, isTargetVisible)
     }
 
     private fun drawCentralCrosshair(canvas: Canvas, cx: Float, cy: Float) {
