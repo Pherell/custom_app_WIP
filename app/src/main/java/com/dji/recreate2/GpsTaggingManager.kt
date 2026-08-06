@@ -54,7 +54,8 @@ object GpsTaggingManager {
         source: String = "MANUAL"
     ): GpsTagItem {
         val list = getTags(context)
-        val newId = "TAG-${String.format("%03d", list.size + 1)}"
+        val maxNum = list.mapNotNull { it.id.removePrefix("TAG-").toIntOrNull() }.maxOrNull() ?: 0
+        val newId = "TAG-${String.format("%03d", maxNum + 1)}"
         val tag = GpsTagItem(
             id = newId,
             name = name,

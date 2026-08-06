@@ -482,46 +482,50 @@
         <TextView android:id="@+id/btnSetHome" android:layout_width="40dp" android:layout_height="24dp" android:text="SET" android:textColor="#00FF00" android:textSize="10sp" android:textStyle="bold" android:fontFamily="monospace" android:background="@drawable/bg_glass_btn" android:gravity="center" />
     </LinearLayout>
 
-    <!-- TOP RIGHT ACTION CONTROLS -->
+    <!-- RIGHT SIDE TACTICAL CONTROLS CONTAINER -->
     <LinearLayout
-        android:id="@+id/rightActionControls"
+        android:id="@+id/rightControlsContainer"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:orientation="vertical"
+        android:orientation="horizontal"
         android:padding="8dp"
-        android:layout_marginEnd="32dp"
-        android:gravity="end"
+        android:layout_marginEnd="16dp"
+        android:gravity="center_vertical"
         app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintVertical_bias="0.5">
-        
-        <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content" android:orientation="horizontal" android:layout_marginBottom="4dp">
-            <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content" android:orientation="vertical" android:layout_marginEnd="8dp" android:layout_gravity="center_vertical">
-                <!-- Circular Gimbal Reset Button -->
-                <TextView android:id="@+id/btnCenterGimbal" android:layout_width="28dp" android:layout_height="28dp" android:text="GMB" android:textColor="#00FF00" android:textSize="8sp" android:textStyle="bold" android:gravity="center" android:background="@drawable/bg_circle_green" android:layout_marginBottom="4dp"/>
-                <!-- Circular Reset Zoom Button -->
-                <TextView android:id="@+id/btnResetZoom" android:layout_width="28dp" android:layout_height="28dp" android:text="RES" android:textColor="#00FF00" android:textSize="8sp" android:textStyle="bold" android:gravity="center" android:background="@drawable/bg_circle_green" android:layout_marginBottom="4dp"/>
-                <!-- Circular Delete Selection Button -->
-                <TextView android:id="@+id/btnDeleteSelection" android:layout_width="28dp" android:layout_height="28dp" android:text="DEL" android:textColor="#FF3333" android:textSize="8sp" android:textStyle="bold" android:gravity="center" android:background="@drawable/bg_circle_green" android:layout_marginBottom="4dp"/>
-                <!-- Circular Follow Object Button -->
-                <TextView android:id="@+id/btnFollowObject" android:layout_width="28dp" android:layout_height="28dp" android:text="FOL" android:textColor="#00FF66" android:textSize="8sp" android:textStyle="bold" android:gravity="center" android:background="@drawable/bg_circle_green" android:layout_marginBottom="4dp"/>
-                <!-- Circular Targeting Pod Geo-Lock Button -->
-                <TextView android:id="@+id/btnTgpLock" android:layout_width="28dp" android:layout_height="28dp" android:text="LCK" android:textColor="#FFFF00" android:textSize="8sp" android:textStyle="bold" android:gravity="center" android:background="@drawable/bg_circle_green" android:layout_marginBottom="4dp"/>
-                <!-- Circular Tag Location Button -->
-                <TextView android:id="@+id/btnTagLocation" android:layout_width="28dp" android:layout_height="28dp" android:text="TAG" android:textColor="#00FFFF" android:textSize="8sp" android:textStyle="bold" android:gravity="center" android:background="@drawable/bg_circle_green"/>
-            </LinearLayout>
-            
-            <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content" android:orientation="vertical">
-                <TextView android:id="@+id/btnLrfToggle" android:layout_width="40dp" android:layout_height="24dp" android:text="LRF" android:textColor="#FFFF00" android:textSize="10sp" android:textStyle="bold" android:fontFamily="monospace" android:background="@drawable/bg_glass_btn" android:gravity="center" android:visibility="gone" android:layout_marginBottom="4dp"/>
-                <TextView android:id="@+id/btnCapture" android:layout_width="40dp" android:layout_height="24dp" android:text="IMG" android:textColor="#00FF00" android:textSize="10sp" android:textStyle="bold" android:fontFamily="monospace" android:background="@drawable/bg_glass_btn" android:gravity="center" android:layout_marginBottom="4dp" />
-                <TextView android:id="@+id/btnRecord" android:layout_width="40dp" android:layout_height="24dp" android:text="REC" android:textColor="#00FF00" android:textSize="10sp" android:textStyle="bold" android:fontFamily="monospace" android:background="@drawable/bg_glass_btn" android:gravity="center" />
-            </LinearLayout>
+
+        <!-- Column 1: Circular Quick Actions (6 Buttons) -->
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:layout_marginEnd="8dp"
+            android:gravity="center">
+
+            <TextView android:id="@+id/btnCenterGimbal" android:layout_width="32dp" android:layout_height="32dp" android:text="GMB" android:textColor="#00FF00" android:textSize="9sp" android:textStyle="bold" android:gravity="center" android:background="@drawable/bg_circle_green" android:layout_marginBottom="4dp"/>
+            <TextView android:id="@+id/btnResetZoom" android:layout_width="32dp" android:layout_height="32dp" android:text="RES" android:textColor="#00FF00" android:textSize="9sp" android:textStyle="bold" android:gravity="center" android:background="@drawable/bg_circle_green" android:layout_marginBottom="4dp"/>
+            <TextView android:id="@+id/btnDeleteSelection" android:layout_width="32dp" android:layout_height="32dp" android:text="DEL" android:textColor="#FF3333" android:textSize="9sp" android:textStyle="bold" android:gravity="center" android:background="@drawable/bg_circle_green" android:layout_marginBottom="4dp"/>
+            <TextView android:id="@+id/btnFollowObject" android:layout_width="32dp" android:layout_height="32dp" android:text="FOL" android:textColor="#00FF66" android:textSize="9sp" android:textStyle="bold" android:gravity="center" android:background="@drawable/bg_circle_green" android:layout_marginBottom="4dp"/>
+            <TextView android:id="@+id/btnTgpLock" android:layout_width="32dp" android:layout_height="32dp" android:text="LCK" android:textColor="#FFFF00" android:textSize="9sp" android:textStyle="bold" android:gravity="center" android:background="@drawable/bg_circle_green" android:layout_marginBottom="4dp"/>
+            <TextView android:id="@+id/btnTagLocation" android:layout_width="32dp" android:layout_height="32dp" android:text="TAG" android:textColor="#00FFFF" android:textSize="9sp" android:textStyle="bold" android:gravity="center" android:background="@drawable/bg_circle_green"/>
         </LinearLayout>
-        
-        <TextView android:id="@+id/btnToggleJoysticks" android:layout_width="40dp" android:layout_height="24dp" android:text="STK" android:textColor="#00FF00" android:textSize="10sp" android:textStyle="bold" android:fontFamily="monospace" android:background="@drawable/bg_glass_btn" android:gravity="center" android:layout_marginBottom="4dp" />
-        <TextView android:id="@+id/btnDismissAlerts" android:layout_width="40dp" android:layout_height="24dp" android:text="ACK" android:textColor="#00FF00" android:textSize="10sp" android:textStyle="bold" android:fontFamily="monospace" android:background="@drawable/bg_glass_btn" android:gravity="center" android:layout_marginBottom="4dp" />
-        <TextView android:id="@+id/btnSystem" android:layout_width="40dp" android:layout_height="24dp" android:text="SYS" android:textColor="#00FF00" android:textSize="10sp" android:textStyle="bold" android:fontFamily="monospace" android:background="@drawable/bg_glass_btn" android:gravity="center" />
+
+        <!-- Column 2: System Pill Actions (6 Buttons) -->
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:gravity="center">
+
+            <TextView android:id="@+id/btnLrfToggle" android:layout_width="44dp" android:layout_height="28dp" android:text="LRF" android:textColor="#FFFF00" android:textSize="10sp" android:textStyle="bold" android:fontFamily="monospace" android:background="@drawable/bg_glass_btn" android:gravity="center" android:visibility="gone" android:layout_marginBottom="4dp"/>
+            <TextView android:id="@+id/btnCapture" android:layout_width="44dp" android:layout_height="28dp" android:text="IMG" android:textColor="#00FF00" android:textSize="10sp" android:textStyle="bold" android:fontFamily="monospace" android:background="@drawable/bg_glass_btn" android:gravity="center" android:layout_marginBottom="4dp" />
+            <TextView android:id="@+id/btnRecord" android:layout_width="44dp" android:layout_height="28dp" android:text="REC" android:textColor="#00FF00" android:textSize="10sp" android:textStyle="bold" android:fontFamily="monospace" android:background="@drawable/bg_glass_btn" android:gravity="center" android:layout_marginBottom="4dp" />
+            <TextView android:id="@+id/btnToggleJoysticks" android:layout_width="44dp" android:layout_height="28dp" android:text="STK" android:textColor="#00FF00" android:textSize="10sp" android:textStyle="bold" android:fontFamily="monospace" android:background="@drawable/bg_glass_btn" android:gravity="center" android:layout_marginBottom="4dp" />
+            <TextView android:id="@+id/btnDismissAlerts" android:layout_width="44dp" android:layout_height="28dp" android:text="ACK" android:textColor="#00FF00" android:textSize="10sp" android:textStyle="bold" android:fontFamily="monospace" android:background="@drawable/bg_glass_btn" android:gravity="center" android:layout_marginBottom="4dp" />
+            <TextView android:id="@+id/btnSystem" android:layout_width="44dp" android:layout_height="28dp" android:text="SYS" android:textColor="#00FF00" android:textSize="10sp" android:textStyle="bold" android:fontFamily="monospace" android:background="@drawable/bg_glass_btn" android:gravity="center" />
+        </LinearLayout>
     </LinearLayout>
 
     <!-- JOYSTICK CONTAINER (Overlay) -->

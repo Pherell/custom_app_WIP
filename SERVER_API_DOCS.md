@@ -1,5 +1,10 @@
 # Tactical Drone C2 Server Specification
 
+> **Changelog — 2026-08-06 (STE-100 UI Layout Organization & Thread-Safety Bug Remediation)**
+> - **Unified 2-Column HUD Layout (`activity_main.xml`):** Reconstructed the right HUD button panel into a balanced, perfectly aligned 2-column side-by-side grid (`Column 1: GMB, RES, DEL, FOL, LCK, TAG` [32dp Circular] & `Column 2: LRF, IMG, REC, STK, ACK, SYS` [44dp Glass Pill]). Eliminates all layout gaps and misalignment.
+> - **MSDK V5 Thread Safety Enforcement (`MainActivity.kt`):** Wrapped background tracking loop SDK calls (`KeyManager.getInstance().performAction`) and map marker overlay updates (`updateGpsTagsOnMap`) inside `runOnUiThread { ... }` per STE-100 guardrail rules.
+> - **Tag ID Collision Fix (`GpsTaggingManager.kt`):** Updated tag ID generator to calculate `maxNum + 1` from existing integer suffixes, preventing ID collisions when tags are deleted.
+>
 > **Changelog — 2026-08-06 (TAG Circular HUD Button for Target Geolocation Tagging)**
 > - **`TAG` Circular HUD Button:** Added circular **`TAG`** button directly below **`LCK`** on the main FPV layout. Pressing **`TAG`** instantly tags the current LRF ground target or drone GPS coordinate, stores it in `GpsTaggingManager`, and draws a **Yellow POI Marker Pin** (`#FFFF00`) on the strategy map.
 > - **GPS Target Intel Tab inside System Settings:** Positioned the GPS Target Intel dialog launcher inside System Config (`btnGpsTagsConfig`: `📍 GPS TARGET INTEL & TAGS`).

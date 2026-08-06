@@ -4563,11 +4563,13 @@ class MainActivity : AppCompatActivity() {
                     val pitchSpeed = (errorY * maxDegPerSec).coerceIn(-maxDegPerSec, maxDegPerSec)
 
                     if (Math.abs(errorX) > 0.03f || Math.abs(errorY) > 0.03f) {
-                        KeyManager.getInstance().performAction(
-                            gimbalSpeedKey,
-                            GimbalSpeedRotation(pitchSpeed, yawSpeed, 0.0, CtrlInfo()),
-                            null
-                        )
+                        runOnUiThread {
+                            KeyManager.getInstance().performAction(
+                                gimbalSpeedKey,
+                                GimbalSpeedRotation(pitchSpeed, yawSpeed, 0.0, CtrlInfo()),
+                                null
+                            )
+                        }
                     }
 
                     Thread.sleep(50)
@@ -4585,7 +4587,9 @@ class MainActivity : AppCompatActivity() {
         trackingLoopThread = null
 
         val gimbalSpeedKey = KeyTools.createKey(GimbalKey.KeyRotateBySpeed, ComponentIndexType.LEFT_OR_MAIN)
-        KeyManager.getInstance().performAction(gimbalSpeedKey, GimbalSpeedRotation(0.0, 0.0, 0.0, CtrlInfo()), null)
+        runOnUiThread {
+            KeyManager.getInstance().performAction(gimbalSpeedKey, GimbalSpeedRotation(0.0, 0.0, 0.0, CtrlInfo()), null)
+        }
 
         log("Stopped Optical Object Tracking.")
         showToast("LOCK: OBJECT UNLOCKED")
@@ -4661,7 +4665,9 @@ class MainActivity : AppCompatActivity() {
                         rotation.roll = 0.0
                         rotation.duration = 0.1
 
-                        KeyManager.getInstance().performAction(gimbalAngleKey, rotation, null)
+                        runOnUiThread {
+                            KeyManager.getInstance().performAction(gimbalAngleKey, rotation, null)
+                        }
                     }
 
                     Thread.sleep(100)
@@ -4675,41 +4681,43 @@ class MainActivity : AppCompatActivity() {
     private val gpsTagMapMarkers = mutableListOf<org.osmdroid.views.overlay.Marker>()
 
     private fun updateGpsTagsOnMap() {
-        if (!::mapView.isInitialized) return
+        runOnUiThread {
+            if (!::mapView.isInitialized) return@runOnUiThread
 
-        for (m in gpsTagMapMarkers) {
-            mapView.overlays.remove(m)
-        }
-        gpsTagMapMarkers.clear()
-
-        val tags = GpsTaggingManager.getTags(this)
-        for (tag in tags) {
-            val marker = org.osmdroid.views.overlay.Marker(mapView).apply {
-                position = GeoPoint(tag.latitude, tag.longitude)
-                title = "${tag.id}: ${tag.name}"
-                snippet = "Lat: ${String.format("%.5f", tag.latitude)}, Lon: ${String.format("%.5f", tag.longitude)}\nAlt: ${String.format("%.1f", tag.altitude)}m [TGP/POI]"
-                setAnchor(org.osmdroid.views.overlay.Marker.ANCHOR_CENTER, org.osmdroid.views.overlay.Marker.ANCHOR_BOTTOM)
-
-                val yellowDrawable = android.graphics.drawable.GradientDrawable().apply {
-                    shape = android.graphics.drawable.GradientDrawable.OVAL
-                    setColor(android.graphics.Color.parseColor("#FFFF00"))
-                    setStroke(4, android.graphics.Color.BLACK)
-                    setSize(36, 36)
-                }
-                icon = yellowDrawable
-
-                setOnMarkerClickListener { _, _ ->
-                    showInfoWindow()
-                    toggleTargetingPodLock(tag.latitude, tag.longitude, tag.altitude)
-                    showToast("🎯 TGP Geo-Lock Engaged on Saved Tag: ${tag.id}")
-                    true
-                }
+            for (m in gpsTagMapMarkers) {
+                mapView.overlays.remove(m)
             }
-            mapView.overlays.add(marker)
-            gpsTagMapMarkers.add(marker)
-        }
+            gpsTagMapMarkers.clear()
 
-        mapView.invalidate()
+            val tags = GpsTaggingManager.getTags(this)
+            for (tag in tags) {
+                val marker = org.osmdroid.views.overlay.Marker(mapView).apply {
+                    position = GeoPoint(tag.latitude, tag.longitude)
+                    title = "${tag.id}: ${tag.name}"
+                    snippet = "Lat: ${String.format("%.5f", tag.latitude)}, Lon: ${String.format("%.5f", tag.longitude)}\nAlt: ${String.format("%.1f", tag.altitude)}m [TGP/POI]"
+                    setAnchor(org.osmdroid.views.overlay.Marker.ANCHOR_CENTER, org.osmdroid.views.overlay.Marker.ANCHOR_BOTTOM)
+
+                    val yellowDrawable = android.graphics.drawable.GradientDrawable().apply {
+                        shape = android.graphics.drawable.GradientDrawable.OVAL
+                        setColor(android.graphics.Color.parseColor("#FFFF00"))
+                        setStroke(4, android.graphics.Color.BLACK)
+                        setSize(36, 36)
+                    }
+                    icon = yellowDrawable
+
+                    setOnMarkerClickListener { _, _ ->
+                        showInfoWindow()
+                        toggleTargetingPodLock(tag.latitude, tag.longitude, tag.altitude)
+                        showToast("🎯 TGP Geo-Lock Engaged on Saved Tag: ${tag.id}")
+                        true
+                    }
+                }
+                mapView.overlays.add(marker)
+                gpsTagMapMarkers.add(marker)
+            }
+
+            mapView.invalidate()
+        }
     }
 
     private fun showGpsTaggingDialog() {
