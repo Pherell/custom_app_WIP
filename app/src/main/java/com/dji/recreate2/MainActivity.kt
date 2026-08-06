@@ -806,6 +806,8 @@ class MainActivity : AppCompatActivity() {
         val btnModeMap = findViewById<TextView>(R.id.btnModeMap)
         val btnModeShape = findViewById<TextView>(R.id.btnModeShape)
         val btnModeWaypoint = findViewById<TextView>(R.id.btnModeWaypoint)
+        val btnGpsTags = findViewById<TextView>(R.id.btnGpsTags)
+        btnGpsTags?.setOnClickListener { showGpsTaggingDialog() }
         val btnGenerateGrid = findViewById<TextView>(R.id.btnGenerateGrid)
         val btnSyncWebOdm = findViewById<TextView>(R.id.btnSyncWebOdm)
         val btnStartKmz = findViewById<TextView>(R.id.btnStartKmz)
@@ -4650,6 +4652,153 @@ class MainActivity : AppCompatActivity() {
                 // Interrupted
             }
         }.apply { start() }
+    }
+
+    private fun showGpsTaggingDialog() {
+        val dialogView = layoutInflater.inflate(R.layout.dialog_gps_tagging, null)
+        val dialog = android.app.AlertDialog.Builder(this)
+            .setView(dialogView)
+            .create()
+
+        dialog.window?.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT))
+
+        val containerGpsTags = dialogView.findViewById<android.widget.LinearLayout>(R.id.containerGpsTags)
+        val btnTagCurrentPos = dialogView.findViewById<android.widget.Button>(R.id.btnTagCurrentPos)
+        val btnTagTgpTarget = dialogView.findViewById<android.widget.Button>(R.id.btnTagTgpTarget)
+        val btnClearAllTags = dialogView.findViewById<android.widget.Button>(R.id.btnClearAllTags)
+        val btnCloseTagsDialog = dialogView.findViewById<android.widget.Button>(R.id.btnCloseTagsDialog)
+
+        fun refreshTagList() {
+            containerGpsTags.removeAllViews()
+            val tags = GpsTaggingManager.getTags(this)
+
+            if (tags.isEmpty()) {
+                val emptyTv = android.widget.TextView(this).apply {
+                    text = "No GPS Target Coordinates Tagged Yet."
+                    setTextColor(android.graphics.Color.parseColor("#94A3B8"))
+                    textSize = 12f
+                    setPadding(16, 24, 16, 24)
+                    gravity = android.view.Gravity.CENTER
+                }
+                containerGpsTags.addView(emptyTv)
+                return
+            }
+
+            val timeFormat = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US)
+
+            for (tag in tags) {
+                val itemView = android.widget.LinearLayout(this).apply {
+                    orientation = android.widget.LinearLayout.VERTICAL
+                    setPadding(16, 12, 16, 12)
+                    setBackgroundResource(R.drawable.bg_glass_btn)
+                    val params = android.widget.LinearLayout.LayoutParams(
+                        android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                        android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+                    )
+                    params.setMargins(0, 0, 0, 12)
+                    layoutParams = params
+                }
+
+                val titleTv = android.widget.TextView(this).apply {
+                    text = "${tag.id}: ${String.format("%.5f", tag.latitude)}, ${String.format("%.5f", tag.longitude)} (Alt: ${String.format("%.1f", tag.altitude)}m)"
+                    setTextColor(android.graphics.Color.parseColor("#00FF66"))
+                    textSize = 13f
+                    typeface = android.graphics.Typeface.MONOSPACE
+                    setTypeface(null, android.graphics.Typeface.BOLD)
+                }
+
+                val metaTv = android.widget.TextView(this).apply {
+                    text = "Src: ${tag.source} | Time: ${timeFormat.format(java.util.Date(tag.timestamp))}"
+                    setTextColor(android.graphics.Color.parseColor("#94A3B8"))
+                    textSize = 10f
+                    typeface = android.graphics.Typeface.MONOSPACE
+                }
+
+                val actionRow = android.widget.LinearLayout(this).apply {
+                    orientation = android.widget.LinearLayout.HORIZONTAL
+                    val params = android.widget.LinearLayout.LayoutParams(
+                        android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                        android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+                    )
+                    params.setMargins(0, 8, 0, 0)
+                    layoutParams = params
+                }
+
+                val btnLock = android.widget.Button(this).apply {
+                    text = "🎯 LOCK POI/TGP"
+                    setTextColor(android.graphics.Color.BLACK)
+                    textSize = 10f
+                    setBackgroundColor(android.graphics.Color.parseColor("#00FF66"))
+                    val p = android.widget.LinearLayout.LayoutParams(0, 72, 1.2f)
+                    p.setMargins(0, 0, 8, 0)
+                    layoutParams = p
+                    setOnClickListener {
+                        toggleTargetingPodLock(tag.latitude, tag.longitude, tag.altitude)
+                        dialog.dismiss()
+                    }
+                }
+
+                val btnDelete = android.widget.Button(this).apply {
+                    text = "🗑️ DELETE"
+                    setTextColor(android.graphics.Color.WHITE)
+                    textSize = 10f
+                    setBackgroundColor(android.graphics.Color.parseColor("#FF3333"))
+                    val p = android.widget.LinearLayout.LayoutParams(0, 72, 1.0f)
+                    layoutParams = p
+                    setOnClickListener {
+                        GpsTaggingManager.deleteTag(this@MainActivity, tag.id)
+                        refreshTagList()
+                    }
+                }
+
+                actionRow.addView(btnLock)
+                actionRow.addView(btnDelete)
+
+                itemView.addView(titleTv)
+                itemView.addView(metaTv)
+                itemView.addView(actionRow)
+
+                containerGpsTags.addView(itemView)
+            }
+        }
+
+        refreshTagList()
+
+        btnTagCurrentPos?.setOnClickListener {
+            if (droneLat == 0.0 && droneLon == 0.0) {
+                showToast("⚠️ Waiting for Drone GPS fix...")
+            } else {
+                GpsTaggingManager.addTag(this, "DRONE_POS", droneLat, droneLon, droneAlt, "DRONE_GPS")
+                refreshTagList()
+                showToast("📍 Tagged Current Drone Position")
+            }
+        }
+
+        btnTagTgpTarget?.setOnClickListener {
+            val tLat = if (isTgpGeoLockActive) tgpTargetLat else droneLat
+            val tLon = if (isTgpGeoLockActive) tgpTargetLon else droneLon
+            val tAlt = if (isTgpGeoLockActive) tgpTargetAlt else droneAlt
+
+            if (tLat == 0.0 && tLon == 0.0) {
+                showToast("⚠️ Waiting for GPS fix...")
+            } else {
+                GpsTaggingManager.addTag(this, "TGP_TARGET", tLat, tLon, tAlt, "TGP_GEO_LOCK")
+                refreshTagList()
+                showToast("📍 Tagged TGP Target Location")
+            }
+        }
+
+        btnClearAllTags?.setOnClickListener {
+            GpsTaggingManager.clearAllTags(this)
+            refreshTagList()
+            showToast("🗑️ All GPS Tags Cleared")
+        }
+
+        btnCloseTagsDialog?.setOnClickListener {
+            dialog.dismiss()
+        }
+
+        dialog.show()
     }
 
     private var isDistanceLimitEnabled = false
