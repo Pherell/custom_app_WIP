@@ -1,5 +1,10 @@
 # Tactical Drone C2 Server Specification
 
+> **Changelog — 2026-08-06 (Gimbal Hardware Overload Protection, Dynamic Box Centering & OBJ Gesture Toggle)**
+> - **Gimbal Hardware Motor Protection near Nadir (`toggleTargetingPodLock`):** When the camera points straight down (pitch $\le -85^\circ$ or horizontal distance $< 3\text{m}$), gimbal yaw rotation is frozen (`finalYaw = gimbalYaw`) to prevent $180^\circ$ yaw flipping and mechanical motor damage. Pitch is safely clamped between $-88^\circ \dots +25^\circ$.
+> - **Dynamic Bounding Box Frame Convergence (`startOpticalObjectTracking`):** As the gimbal turns toward an off-center target, the bounding box automatically shifts back toward screen center $(0.5, 0.5)$ proportional to FOV angular displacement. Once centered, PID speeds drop to `0.0`, preventing uncontrolled gimbal spinning.
+> - **`OBJ` HUD Button & Gesture Mode (`btnToggleObjectTouch`):** Added **`OBJ`** HUD button directly below **`TAG`**. When **`OBJ`** is OFF (default), touches pass through to camera pinch-to-zoom and swipe gestures. When **`OBJ`** is ON, touch/drag draws bounding boxes for optical object lock.
+>
 > **Changelog — 2026-08-06 (STE-100 UI Layout Organization & Thread-Safety Bug Remediation)**
 > - **Unified 2-Column HUD Layout (`activity_main.xml`):** Reconstructed the right HUD button panel into a balanced, perfectly aligned 2-column side-by-side grid (`Column 1: GMB, RES, DEL, FOL, LCK, TAG` [32dp Circular] & `Column 2: LRF, IMG, REC, STK, ACK, SYS` [44dp Glass Pill]). Eliminates all layout gaps and misalignment.
 > - **MSDK V5 Thread Safety Enforcement (`MainActivity.kt`):** Wrapped background tracking loop SDK calls (`KeyManager.getInstance().performAction`) and map marker overlay updates (`updateGpsTagsOnMap`) inside `runOnUiThread { ... }` per STE-100 guardrail rules.

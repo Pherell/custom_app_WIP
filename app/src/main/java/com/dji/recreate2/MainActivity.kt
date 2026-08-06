@@ -1337,6 +1337,13 @@ class MainActivity : AppCompatActivity() {
                 showToast("📍 TAGGED LOCATION [${item.id}]: ${String.format("%.5f", tLat)}, ${String.format("%.5f", tLon)}")
             }
         }
+        val btnToggleObjectTouch = findViewById<TextView>(R.id.btnToggleObjectTouch)
+        btnToggleObjectTouch?.setOnClickListener {
+            val newState = !(objectTrackingOverlay?.isTouchSelectionEnabled ?: false)
+            objectTrackingOverlay?.isTouchSelectionEnabled = newState
+            btnToggleObjectTouch.setTextColor(if (newState) android.graphics.Color.parseColor("#00FFFF") else android.graphics.Color.parseColor("#AAAAAA"))
+            showToast(if (newState) "🎯 Touch Object Selection: ENABLED (Tap/Drag Feed)" else "✋ Touch Object Selection: DISABLED (Gestures Active)")
+        }
         findViewById<TextView>(R.id.btnToggleJoysticks).setOnClickListener { toggleJoysticks() }
         findViewById<TextView>(R.id.btnSystem).setOnClickListener { showSystemDialog() }
 
@@ -4570,6 +4577,24 @@ class MainActivity : AppCompatActivity() {
                                 null
                             )
                         }
+
+                        val fovH = 60.0
+                        val fovV = 45.0
+                        val dt = 0.05
+                        lastTargetNormX -= ((yawSpeed * dt) / fovH).toFloat()
+                        lastTargetNormY += ((pitchSpeed * dt) / fovV).toFloat()
+                        lastTargetNormX = lastTargetNormX.coerceIn(0.05f, 0.95f)
+                        lastTargetNormY = lastTargetNormY.coerceIn(0.05f, 0.95f)
+
+                        objectTrackingOverlay?.updateTargetPosition(lastTargetNormX, lastTargetNormY)
+                    } else {
+                        runOnUiThread {
+                            KeyManager.getInstance().performAction(
+                                gimbalSpeedKey,
+                                GimbalSpeedRotation(0.0, 0.0, 0.0, CtrlInfo()),
+                                null
+                            )
+                        }
                     }
 
                     Thread.sleep(50)
@@ -4654,9 +4679,14 @@ class MainActivity : AppCompatActivity() {
                         val targetBearingDeg = (Math.toDegrees(Math.atan2(dE, dN)) + 360.0) % 360.0
                         val targetPitchDeg = Math.toDegrees(Math.atan2(dU, distanceHorizontal))
 
-                        val desiredPitch = targetPitchDeg.coerceIn(-90.0, 30.0)
-                        val relativeYaw = (targetBearingDeg - droneYaw + 360.0) % 360.0
-                        val finalYaw = if (relativeYaw > 180.0) relativeYaw - 360.0 else relativeYaw
+                        // Protection: Clamp pitch safely & freeze yaw when pointing straight down to prevent hardware motor damage
+                        val desiredPitch = targetPitchDeg.coerceIn(-88.0, 25.0)
+                        val finalYaw = if (distanceHorizontal < 3.0) {
+                            gimbalYaw
+                        } else {
+                            val relativeYaw = (targetBearingDeg - droneYaw + 360.0) % 360.0
+                            if (relativeYaw > 180.0) relativeYaw - 360.0 else relativeYaw
+                        }
 
                         val rotation = dji.sdk.keyvalue.value.gimbal.GimbalAngleRotation()
                         rotation.mode = dji.sdk.keyvalue.value.gimbal.GimbalAngleRotationMode.ABSOLUTE_ANGLE

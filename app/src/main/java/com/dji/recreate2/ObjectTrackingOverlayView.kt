@@ -54,6 +54,8 @@ class ObjectTrackingOverlayView @JvmOverloads constructor(
     var isTrackingActive = false
         private set
 
+    var isTouchSelectionEnabled = false
+
     val targetBoundingBox = RectF()
     private val dragStartBox = RectF()
     private var isDragging = false
@@ -64,7 +66,7 @@ class ObjectTrackingOverlayView @JvmOverloads constructor(
     var onTargetUnlockedListener: (() -> Unit)? = null
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        if (visibility != VISIBLE) return false
+        if (visibility != VISIBLE || !isTouchSelectionEnabled) return false
 
         when (event.action) {
             MotionEvent.ACTION_DOWN -> {

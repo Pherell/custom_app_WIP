@@ -509,7 +509,8 @@
             <TextView android:id="@+id/btnDeleteSelection" android:layout_width="32dp" android:layout_height="32dp" android:text="DEL" android:textColor="#FF3333" android:textSize="9sp" android:textStyle="bold" android:gravity="center" android:background="@drawable/bg_circle_green" android:layout_marginBottom="4dp"/>
             <TextView android:id="@+id/btnFollowObject" android:layout_width="32dp" android:layout_height="32dp" android:text="FOL" android:textColor="#00FF66" android:textSize="9sp" android:textStyle="bold" android:gravity="center" android:background="@drawable/bg_circle_green" android:layout_marginBottom="4dp"/>
             <TextView android:id="@+id/btnTgpLock" android:layout_width="32dp" android:layout_height="32dp" android:text="LCK" android:textColor="#FFFF00" android:textSize="9sp" android:textStyle="bold" android:gravity="center" android:background="@drawable/bg_circle_green" android:layout_marginBottom="4dp"/>
-            <TextView android:id="@+id/btnTagLocation" android:layout_width="32dp" android:layout_height="32dp" android:text="TAG" android:textColor="#00FFFF" android:textSize="9sp" android:textStyle="bold" android:gravity="center" android:background="@drawable/bg_circle_green"/>
+            <TextView android:id="@+id/btnTagLocation" android:layout_width="32dp" android:layout_height="32dp" android:text="TAG" android:textColor="#00FFFF" android:textSize="9sp" android:textStyle="bold" android:gravity="center" android:background="@drawable/bg_circle_green" android:layout_marginBottom="4dp"/>
+            <TextView android:id="@+id/btnToggleObjectTouch" android:layout_width="32dp" android:layout_height="32dp" android:text="OBJ" android:textColor="#AAAAAA" android:textSize="9sp" android:textStyle="bold" android:gravity="center" android:background="@drawable/bg_circle_green"/>
         </LinearLayout>
 
         <!-- Column 2: System Pill Actions (6 Buttons) -->
