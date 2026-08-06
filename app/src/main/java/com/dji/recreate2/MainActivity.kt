@@ -6478,23 +6478,36 @@ class MainActivity : AppCompatActivity() {
                         setDistanceLimitation(enabled, distanceMeters)
                         publishCommandReceipt(transactionId, command, "COMPLETED")
                     }
-                    "TRACK_OBJECT", "LOCK_TARGET", "LOCK_OBJECT" -> {
+                    "TRACK_OBJECT", "LOCK_TARGET", "LOCK_OBJECT", "AI_TRACK", "OBJECT_FOLLOW", "AUTO_FOLLOW" -> {
                         publishCommandReceipt(transactionId, command, "EXECUTING")
-                        val xMin = json.optDouble("x_min", json.optDouble("normX", 0.5) - 0.1).toFloat()
-                        val yMin = json.optDouble("y_min", json.optDouble("normY", 0.5) - 0.1).toFloat()
-                        val xMax = json.optDouble("x_max", json.optDouble("normX", 0.5) + 0.1).toFloat()
-                        val yMax = json.optDouble("y_max", json.optDouble("normY", 0.5) + 0.1).toFloat()
+                        val xMin = json.optDouble("x_min", json.optDouble("normX", json.optDouble("norm_x", 0.5) - 0.1)).toFloat()
+                        val yMin = json.optDouble("y_min", json.optDouble("normY", json.optDouble("norm_y", 0.5) - 0.1)).toFloat()
+                        val xMax = json.optDouble("x_max", json.optDouble("normX", json.optDouble("norm_x", 0.5) + 0.1)).toFloat()
+                        val yMax = json.optDouble("y_max", json.optDouble("normY", json.optDouble("norm_y", 0.5) + 0.1)).toFloat()
                         val normX = (xMin + xMax) / 2f
                         val normY = (yMin + yMax) / 2f
                         val normW = Math.abs(xMax - xMin)
                         val normH = Math.abs(yMax - yMin)
 
                         runOnUiThread {
+                            // 1. Lock optical target tracking & gimbal follow loop
                             objectTrackingOverlay?.lockTargetNormalized(normX, normY, normW, normH)
+                            // 2. Trigger hardware camera focus directly on the AI-detected target
+                            triggerTapToFocus(normX.toDouble(), normY.toDouble())
                         }
                         publishCommandReceipt(transactionId, command, "COMPLETED")
                     }
-                    "STOP_TRACKING", "UNLOCK_TARGET", "UNLOCK_OBJECT" -> {
+                    "FOCUS_OBJECT", "TAP_TO_FOCUS", "FOCUS_TARGET", "AUTO_FOCUS" -> {
+                        publishCommandReceipt(transactionId, command, "EXECUTING")
+                        val normX = json.optDouble("normX", json.optDouble("norm_x", json.optDouble("x", 0.5)))
+                        val normY = json.optDouble("normY", json.optDouble("norm_y", json.optDouble("y", 0.5)))
+
+                        runOnUiThread {
+                            triggerTapToFocus(normX, normY)
+                        }
+                        publishCommandReceipt(transactionId, command, "COMPLETED")
+                    }
+                    "STOP_TRACKING", "UNLOCK_TARGET", "UNLOCK_OBJECT", "CANCEL_FOLLOW" -> {
                         publishCommandReceipt(transactionId, command, "EXECUTING")
                         runOnUiThread {
                             objectTrackingOverlay?.unlockTarget()

@@ -1,5 +1,12 @@
 # Tactical Drone C2 Server Specification
 
+> **Changelog — 2026-08-06 (External AI Vision C2 MQTT API for Remote Lock, Focus & Follow)**
+> - **External AI Computer Vision Control over MQTT:** Enabled external AI agents (YOLO, MediaPipe, OpenCV, Ground Station AI) reading the RTMP stream to remotely lock, focus, and follow detected objects (humans, cars, boats, security targets) in real-time.
+> - **New C2 Commands:**
+>   - **`TRACK_OBJECT` / `LOCK_OBJECT` / `OBJECT_FOLLOW` / `AI_TRACK`:** Locks optical target tracking on normalized bounding box `{"x_min": 0.4, "y_min": 0.3, "x_max": 0.6, "y_max": 0.7}` or target center `{"norm_x": 0.5, "norm_y": 0.5}`, triggering 20Hz PID gimbal speed tracking and hardware lens focus simultaneously.
+>   - **`FOCUS_OBJECT` / `TAP_TO_FOCUS` / `AUTO_FOCUS`:** Triggers multi-lens hardware focus across Zoom & Wide camera lenses on AI normalized coordinates `{"norm_x": 0.45, "norm_y": 0.35}`.
+>   - **`STOP_TRACKING` / `UNLOCK_OBJECT` / `CANCEL_FOLLOW`:** Clears AI object tracking overlay and releases gimbal control.
+>
 > **Changelog — 2026-08-06 (Touch-and-Drag Optical Object Lock & Target Tracking Engine)**
 > - **Tactical Object Tracking Overlay (`ObjectTrackingOverlayView.kt`):** Implemented touch-and-drag bounding box selection and single-tap quick object locking on live camera feed for security missions (humans, vehicles, intruders, animals). Renders tactical green corner reticles and status label overlays.
 > - **Closed-Loop Proportional Gimbal Speed Centering (`startOpticalObjectTracking`):** Runs a 20Hz PID control feedback loop calculating target offset $(\Delta x, \Delta y)$ from optical center and sending proportional angular velocity commands (`KeyRotateBySpeed`) to keep the target centered in optical crosshairs.
