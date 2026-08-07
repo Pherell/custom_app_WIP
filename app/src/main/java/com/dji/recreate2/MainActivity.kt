@@ -8137,18 +8137,20 @@ class MainActivity : AppCompatActivity() {
         }
 
         if (isFlying) {
-            val rthKey = KeyTools.createKey(FlightControllerKey.KeyStartGoHome)
-            KeyManager.getInstance().performAction(rthKey, object : CommonCallbacks.CompletionCallbackWithParam<dji.sdk.keyvalue.value.common.EmptyMsg> {
-                override fun onSuccess(p0: dji.sdk.keyvalue.value.common.EmptyMsg?) {
-                    runOnUiThread { log("✔️ Failsafe RTH started successfully.") }
-                }
-                override fun onFailure(error: IDJIError) {
-                    runOnUiThread { log("❌ Failsafe RTH failed: ${error.description()}") }
-                    // Fallback to landing if Go-Home fails
-                    val landKey = KeyTools.createKey(FlightControllerKey.KeyStartAutoLanding)
-                    KeyManager.getInstance().performAction(landKey, null)
-                }
-            })
+            runOnUiThread {
+                val rthKey = KeyTools.createKey(FlightControllerKey.KeyStartGoHome)
+                KeyManager.getInstance().performAction(rthKey, object : CommonCallbacks.CompletionCallbackWithParam<dji.sdk.keyvalue.value.common.EmptyMsg> {
+                    override fun onSuccess(p0: dji.sdk.keyvalue.value.common.EmptyMsg?) {
+                        runOnUiThread { log("✔️ Failsafe RTH started successfully.") }
+                    }
+                    override fun onFailure(error: IDJIError) {
+                        runOnUiThread { log("❌ Failsafe RTH failed: ${error.description()}") }
+                        // Fallback to landing if Go-Home fails
+                        val landKey = KeyTools.createKey(FlightControllerKey.KeyStartAutoLanding)
+                        KeyManager.getInstance().performAction(landKey, null)
+                    }
+                })
+            }
         }
     }
 }
