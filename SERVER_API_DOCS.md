@@ -47,7 +47,10 @@
 >
 > **Changelog — 2026-08-06 (Unlimited Distance Limitation Control & C2 Overrides)**
 > - **Unlimited Distance Control (`setDistanceLimitation`):** Implemented distance limitation bypass engine (`dji.sdk.keyvalue.key.FlightControllerKey.KeyDistanceLimitEnabled` and `KeyDistanceLimit`). Allows switching flight radius mode between **UNLIMITED (NO LIMITATION)** and custom distance limits (e.g. 50,000m).
-> - **System Dialog & MQTT C2 Controls:** Added **`[ 🌐 DISTANCE LIMIT: UNLIMITED (NO LIMIT) ]`** toggle button in System Dialog and C2 MQTT command handlers (`SET_DISTANCE_LIMIT`, `UNLIMITED_DISTANCE`, `REMOVE_DISTANCE_LIMIT`, `DISABLE_DISTANCE_LIMIT`).
+> **Changelog — 2026-08-07 (High-Performance FPV Live Streaming Optimization & RTSP Dual Protocol)**
+> - **Dual Protocol RTSP & RTMP Support (`startRtmpStream`):** Added native support for RTSP UDP low-latency streaming (`rtsp://host:port`) and RTMP streaming (`rtmp://...`) over `START_STREAM`, `START_RTMP`, `SET_STREAM`, and `STREAM_START` C2 MQTT commands.
+> - **30 FPS Stream Quality Optimization (`StreamQuality.HD` & `LiveVideoBitrateMode.AUTO`):** Explicitly configured DJI MSDK V5 `liveStreamQuality = StreamQuality.HD` (720p @ 30 FPS) and `liveVideoBitrateMode = LiveVideoBitrateMode.AUTO`, eliminating packet buffer lag and preventing RTMP throttling to 10 FPS.
+> - **Live Stream Telemetry & Status Monitoring (`LiveStreamStatusListener`):** Attached real-time `LiveStreamStatusListener` observing live stream FPS, bitrate, and error events to ensure continuous high-reliability transmission.
 >
 > **Changelog — 2026-08-06 (Belly Landing Lamp & Situational LED Blinking Engine)**
 > - **Bottom Auxiliary / Belly Lamp Control (`setBellyLamp`):** Added explicit toggle control for the bottom landing lamp below the drone (`dji.sdk.keyvalue.value.flightcontroller.LEDsSettings`). Controlled via System Dialog button (`btnBellyLamp`) and MQTT commands (`SET_BELLY_LAMP`, `BELLY_LAMP_ON`, `BELLY_LAMP_OFF`).

@@ -7468,26 +7468,66 @@ class MainActivity : AppCompatActivity() {
         mapView.invalidate()
     }
     
+    private var liveStreamStatusListener: dji.v5.manager.datacenter.livestream.LiveStreamStatusListener? = null
+
     private fun startRtmpStream(url: String) {
-        if (url.isEmpty()) return
+        val cleanUrl = url.trim()
+        if (cleanUrl.isEmpty()) return
         try {
-            showToast("🚀 Starting Low-Latency Stream: $url")
-            android.util.Log.i("KMZ_SysLog", "Optimized Low-Latency Stream Command Received: $url")
+            showToast("🚀 Starting Low-Latency Stream: $cleanUrl")
+            android.util.Log.i("KMZ_SysLog", "Optimized Low-Latency Stream Command Received: $cleanUrl")
             
             val liveStreamManager = dji.v5.manager.datacenter.MediaDataCenter.getInstance().liveStreamManager
             
             if (liveStreamManager != null) {
-                // Set parameter RTMP
-                val rtmpSettings = dji.v5.manager.datacenter.livestream.settings.RtmpSettings.Builder()
-                    .setUrl(url)
-                    .build()
-                    
-                val liveStreamConfig = dji.v5.manager.datacenter.livestream.LiveStreamSettings.Builder()
-                    .setLiveStreamType(dji.v5.manager.datacenter.livestream.LiveStreamType.RTMP)
-                    .setRtmpSettings(rtmpSettings)
-                    .build()
+                val isRtsp = cleanUrl.startsWith("rtsp://", ignoreCase = true)
+                
+                val liveStreamConfig = if (isRtsp) {
+                    val port = cleanUrl.substringAfterLast(":", "8554").toIntOrNull() ?: 8554
+                    val rtspSettings = dji.v5.manager.datacenter.livestream.settings.RtspSettings.Builder()
+                        .setPort(port)
+                        .build()
+                    dji.v5.manager.datacenter.livestream.LiveStreamSettings.Builder()
+                        .setLiveStreamType(dji.v5.manager.datacenter.livestream.LiveStreamType.RTSP)
+                        .setRtspSettings(rtspSettings)
+                        .build()
+                } else {
+                    val rtmpSettings = dji.v5.manager.datacenter.livestream.settings.RtmpSettings.Builder()
+                        .setUrl(cleanUrl)
+                        .build()
+                    dji.v5.manager.datacenter.livestream.LiveStreamSettings.Builder()
+                        .setLiveStreamType(dji.v5.manager.datacenter.livestream.LiveStreamType.RTMP)
+                        .setRtmpSettings(rtmpSettings)
+                        .build()
+                }
                     
                 liveStreamManager.liveStreamSettings = liveStreamConfig
+                
+                // Optimize stream performance: set quality to HD (720p 30FPS) and bitrate mode to AUTO
+                try {
+                    liveStreamManager.liveStreamQuality = dji.v5.manager.datacenter.livestream.StreamQuality.HD
+                    liveStreamManager.liveVideoBitrateMode = dji.v5.manager.datacenter.livestream.LiveVideoBitrateMode.AUTO
+                } catch (e: Exception) {
+                    android.util.Log.w("KMZ_SysLog", "Could not set stream quality/bitrate mode: ${e.message}")
+                }
+
+                // Attach LiveStreamStatusListener to track telemetry & error events
+                if (liveStreamStatusListener == null) {
+                    liveStreamStatusListener = object : dji.v5.manager.datacenter.livestream.LiveStreamStatusListener {
+                        override fun onLiveStreamStatusUpdate(status: dji.v5.manager.datacenter.livestream.LiveStreamStatus?) {
+                            status?.let {
+                                android.util.Log.d("KMZ_SysLog", "LiveStream Telemetry Update: $it")
+                            }
+                        }
+
+                        override fun onError(error: dji.v5.common.error.IDJIError?) {
+                            error?.let {
+                                android.util.Log.e("KMZ_SysLog", "LiveStream Error Event: ${it.description()}")
+                            }
+                        }
+                    }
+                }
+                liveStreamStatusListener?.let { liveStreamManager.addLiveStreamStatusListener(it) }
                 
                 // Set main camera as primary stream source
                 liveStreamManager.cameraIndex = dji.sdk.keyvalue.value.common.ComponentIndexType.LEFT_OR_MAIN
@@ -7495,8 +7535,9 @@ class MainActivity : AppCompatActivity() {
                 liveStreamManager.startStream(object : dji.v5.common.callback.CommonCallbacks.CompletionCallback {
                     override fun onSuccess() {
                         runOnUiThread {
-                            showToast("✔ Ultra-Fast Stream ACTIVE: $url")
-                            log("Optimized Low-Latency Stream started successfully to: $url")
+                            val protoLabel = if (isRtsp) "RTSP Server" else "RTMP (High-Quality)"
+                            showToast("✔ Ultra-Fast $protoLabel Stream ACTIVE: $cleanUrl")
+                            log("Optimized Low-Latency $protoLabel Stream started successfully to: $cleanUrl")
                         }
                     }
                     override fun onFailure(error: dji.v5.common.error.IDJIError) {
@@ -7519,15 +7560,18 @@ class MainActivity : AppCompatActivity() {
 
     private fun stopRtmpStream() {
         try {
-            showToast("Stopping RTMP Stream")
-            android.util.Log.i("KMZ_SysLog", "RTMP Stop Command Received")
+            showToast("Stopping FPV Stream")
+            android.util.Log.i("KMZ_SysLog", "FPV Stream Stop Command Received")
             val liveStreamManager = dji.v5.manager.datacenter.MediaDataCenter.getInstance().liveStreamManager
+            liveStreamStatusListener?.let {
+                liveStreamManager?.removeLiveStreamStatusListener(it)
+            }
             liveStreamManager?.stopStream(object : dji.v5.common.callback.CommonCallbacks.CompletionCallback {
                 override fun onSuccess() {
-                    showToast("RTMP Stream Stopped!")
+                    showToast("FPV Stream Stopped!")
                 }
                 override fun onFailure(error: dji.v5.common.error.IDJIError) {
-                    showToast("Failed to stop RTMP: ${error.description()}")
+                    showToast("Failed to stop FPV Stream: ${error.description()}")
                 }
             })
         } catch (e: Exception) {
