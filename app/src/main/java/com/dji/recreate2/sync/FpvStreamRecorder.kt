@@ -70,7 +70,7 @@ object FpvStreamRecorder {
     fun startRecording(
         surfaceView: SurfaceView,
         context: Context,
-        fps: Int = 20,
+        fps: Int = 10,
         telemetryProvider: (() -> TelemetrySample)? = null
     ): Boolean {
         if (isRecording.get()) {

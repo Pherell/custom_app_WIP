@@ -3063,25 +3063,34 @@ class MainActivity : AppCompatActivity() {
 
                         // ISR Mode 1: Start raw FPV video recorder on tablet with 1s telemetry logging for .SRT
                         if (com.dji.recreate2.sync.ISRModeManager.currentMode == "MODE1") {
-                            log("ISR Mode 1: Starting raw FPV stream video recorder + SRT telemetry logger...")
-                            com.dji.recreate2.sync.FpvStreamRecorder.startRecording(
-                                surfaceView = fpvSurface,
-                                context = this@MainActivity,
-                                fps = 20,
-                                telemetryProvider = {
-                                    com.dji.recreate2.sync.FpvStreamRecorder.TelemetrySample(
-                                        timestampMs = System.currentTimeMillis(),
-                                        lat = droneLat,
-                                        lon = droneLon,
-                                        alt = droneAlt,
-                                        speed = droneSpeed,
-                                        yaw = droneYaw,
-                                        gimbalPitch = gimbalPitch,
-                                        sats = droneSatellites,
-                                        battery = droneBattery
-                                    )
+                            // MUTUAL EXCLUSION: Do not start CPU-heavy PixelCopy if Hardware LiveStream is active!
+                            val liveManager = dji.v5.manager.datacenter.MediaDataCenter.getInstance().liveStreamManager
+                            if (liveManager != null && liveManager.isStreaming) {
+                                runOnUiThread {
+                                    showToast("ISR Recording Blocked: Live Streaming is active. Cannot run dual pipelines.")
                                 }
-                            )
+                                log("ISR Mode 1 Recording blocked due to active Live Stream (Mutual Exclusion).")
+                            } else {
+                                log("ISR Mode 1: Starting raw FPV stream video recorder + SRT telemetry logger...")
+                                com.dji.recreate2.sync.FpvStreamRecorder.startRecording(
+                                    surfaceView = fpvSurface,
+                                    context = this@MainActivity,
+                                    fps = 10, // Reduced from 20 to 10 for performance
+                                    telemetryProvider = {
+                                        com.dji.recreate2.sync.FpvStreamRecorder.TelemetrySample(
+                                            timestampMs = System.currentTimeMillis(),
+                                            lat = droneLat,
+                                            lon = droneLon,
+                                            alt = droneAlt,
+                                            speed = droneSpeed,
+                                            yaw = droneYaw,
+                                            gimbalPitch = gimbalPitch,
+                                            sats = droneSatellites,
+                                            battery = droneBattery
+                                        )
+                                    }
+                                )
+                            }
                         }
                     }
                     override fun onFailure(error: IDJIError) {
@@ -7509,7 +7518,17 @@ class MainActivity : AppCompatActivity() {
     private fun startRtmpStream(url: String) {
         val cleanUrl = url.trim()
         if (cleanUrl.isEmpty()) return
+        
         try {
+            // MUTUAL EXCLUSION: If ISR Mode 1 overlay recording is active, stop it before streaming to prevent dual-pipeline overload
+            if (com.dji.recreate2.sync.FpvStreamRecorder.isRecording()) {
+                runOnUiThread {
+                    showToast("Live Stream Started: Pausing ISR Recording to prevent CPU overload.")
+                }
+                android.util.Log.i("KMZ_SysLog", "Live Stream prioritized: Stopping ISR Recording (Mutual Exclusion)")
+                com.dji.recreate2.sync.FpvStreamRecorder.stopRecording()
+            }
+
             val isWhip = cleanUrl.startsWith("http://", ignoreCase = true) || 
                          cleanUrl.startsWith("https://", ignoreCase = true) || 
                          cleanUrl.startsWith("whip://", ignoreCase = true) ||
