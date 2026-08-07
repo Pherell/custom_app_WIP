@@ -199,6 +199,7 @@ class MainActivity : AppCompatActivity() {
     private var rcBattery = 0
     private var droneSignal = 0
     @Volatile private var isFlying = false
+    @Volatile private var isMappingMissionRunning = false
     @Volatile private var droneSatellites = 0
     @Volatile private var upLinkQuality = 0
     @Volatile private var downLinkQuality = 0
@@ -8122,6 +8123,15 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun triggerLinkLossFailsafe() {
+        // Signal Loss Action during Mapping Missions: Continue Autonomous Mapping Grid!
+        if (isMappingMissionRunning) {
+            runOnUiThread {
+                log("⚠️ Signal Lost during Mapping! Continuing autonomous mapping grid on-board...")
+                showToast("⚠️ Signal Lost! Continuing Mapping Grid autonomously...")
+            }
+            return
+        }
+
         runOnUiThread {
             log("⚠️ GCS LINK LOST! Triggering failsafe Go-Home...")
             showToast("GCS LINK LOST! Triggering failsafe Go-Home...")
