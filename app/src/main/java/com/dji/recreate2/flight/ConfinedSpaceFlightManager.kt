@@ -96,18 +96,27 @@ object ConfinedSpaceFlightManager {
         }
     }
 
+    @Volatile
+    var isFpvAcroModeEnabled: Boolean = false
+        private set
+
+    fun setFpvAcroMode(enabled: Boolean) {
+        isFpvAcroModeEnabled = enabled
+        Log.d(TAG, "FPV Acro Flight Mode updated: $enabled")
+    }
+
     /**
-     * Builds low-latency Virtual Stick parameters optimized for indoor/GPS-Denied or standard outdoor flight.
+     * Builds low-latency Virtual Stick parameters optimized for indoor/GPS-Denied, FPV Acro, or standard outdoor flight.
      * Uses BODY coordinate frame for GPS-denied environments (Forward/Right relative to drone nose).
      */
-    fun createVirtualStickParam(isGpsDenied: Boolean = isGpsDeniedModeEnabled): VirtualStickFlightControlParam {
+    fun createVirtualStickParam(isGpsDenied: Boolean = isGpsDeniedModeEnabled, isFpvMode: Boolean = isFpvAcroModeEnabled): VirtualStickFlightControlParam {
         return VirtualStickFlightControlParam().apply {
-            rollPitchCoordinateSystem = if (isGpsDenied) {
+            rollPitchCoordinateSystem = if (isGpsDenied || isFpvMode) {
                 FlightCoordinateSystem.BODY
             } else {
                 FlightCoordinateSystem.GROUND
             }
-            rollPitchControlMode = RollPitchControlMode.VELOCITY
+            rollPitchControlMode = if (isFpvMode) RollPitchControlMode.ANGLE else RollPitchControlMode.VELOCITY
             verticalControlMode = VerticalControlMode.VELOCITY
             yawControlMode = YawControlMode.ANGULAR_VELOCITY
         }
