@@ -4559,6 +4559,7 @@ class MainActivity : AppCompatActivity() {
             isObjectTrackingActive = false
             trackingLoopThread?.interrupt()
             trackingLoopThread = null
+            com.dji.recreate2.tracking.CustomUnlimitedFollowEngine.stopHybridFollow()
         }
         if (isTgpGeoLockActive) {
             isTgpGeoLockActive = false
@@ -4585,8 +4586,12 @@ class MainActivity : AppCompatActivity() {
         }
 
         isObjectTrackingActive = true
-        log("Started Optical Object Tracking on Target Box: center=($normX, $normY), size=($normW x $normH)")
-        showToast("LOCK: OBJECT / HUMAN ACTIVE")
+        com.dji.recreate2.tracking.CustomUnlimitedFollowEngine.startHybridFollow()
+        com.dji.recreate2.tracking.CustomUnlimitedFollowEngine.configureOptimalActiveTrack(15.0, 8.0)
+        com.dji.recreate2.tracking.CustomUnlimitedFollowEngine.updateTargetObservation(normX, normY)
+
+        log("Started Optical Object Tracking & Hybrid Unlimited Follow on Target Box: center=($normX, $normY)")
+        showToast("HYBRID UNLIMITED FOLLOW ACTIVE [APAS 54km/h]")
 
         trackingLoopThread?.interrupt()
         trackingLoopThread = Thread {
@@ -4594,6 +4599,8 @@ class MainActivity : AppCompatActivity() {
                 val gimbalSpeedKey = KeyTools.createKey(GimbalKey.KeyRotateBySpeed, ComponentIndexType.LEFT_OR_MAIN)
 
                 while (!Thread.currentThread().isInterrupted && isObjectTrackingActive) {
+                    com.dji.recreate2.tracking.CustomUnlimitedFollowEngine.updateTargetObservation(lastTargetNormX, lastTargetNormY)
+
                     val errorX = lastTargetNormX - 0.5f
                     val errorY = 0.5f - lastTargetNormY
 
@@ -4640,13 +4647,14 @@ class MainActivity : AppCompatActivity() {
         isObjectTrackingActive = false
         trackingLoopThread?.interrupt()
         trackingLoopThread = null
+        com.dji.recreate2.tracking.CustomUnlimitedFollowEngine.stopHybridFollow()
 
         val gimbalSpeedKey = KeyTools.createKey(GimbalKey.KeyRotateBySpeed, ComponentIndexType.LEFT_OR_MAIN)
         runOnUiThread {
             KeyManager.getInstance().performAction(gimbalSpeedKey, GimbalSpeedRotation(0.0, 0.0, 0.0, CtrlInfo()), null)
         }
 
-        log("Stopped Optical Object Tracking.")
+        log("Stopped Optical Object Tracking & Hybrid Follow Engine.")
         showToast("LOCK: OBJECT UNLOCKED")
     }
 
