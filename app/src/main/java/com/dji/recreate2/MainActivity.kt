@@ -7515,36 +7515,21 @@ class MainActivity : AppCompatActivity() {
                          cleanUrl.startsWith("whip://", ignoreCase = true) ||
                          cleanUrl.contains("/whip", ignoreCase = true)
 
-            if (isWhip) {
-                showToast("⚡ Starting Native WHIP WebRTC (UDP) Stream...")
-                android.util.Log.i("KMZ_SysLog", "Native WHIP WebRTC Command Received: $cleanUrl")
+            // --- RTMP / RTSP EXECUTION PATH ---
+            // As DJI's LiveStreamManager is the only way to utilize the hardware encoder without overloading the phone's CPU,
+            // we must use RTMP (TCP) push or RTSP Server. Native WHIP WebRTC requires libwebrtc and software encoding, which overloads the Redmi 15C.
 
-                // EXCLUSIVE WHIP EXECUTION PATH:
-                // We use native WebRTC (UDP) which gracefully handles packet loss via PLI/NACK without TCP head-of-line blocking.
-                com.dji.recreate2.sync.WhipWebRtcManager.startWhipStream(
-                    context = this,
-                    whipUrl = cleanUrl,
-                    onSuccess = {
-                        runOnUiThread {
-                            showToast("✔ WHIP WebRTC (UDP) Stream ACTIVE!")
-                            log("WHIP WebRTC (UDP) Stream active to: $cleanUrl")
-                        }
-                    },
-                    onError = { err ->
-                        runOnUiThread {
-                            showToast("✗ WHIP Error: $err")
-                            log("WHIP Error: $err")
-                        }
-                    }
-                )
-                // RETURN EARLY! Do NOT start DJI's RTMP encoder over TCP, avoiding double-encoding and TCP stutter.
-                return
+            val targetStreamUrl = if (isWhip) {
+                // If user clicks WHIP, we map it to RTMP push since pure WHIP cannot be hardware-encoded on this device.
+                val streamName = cleanUrl.substringAfter("dst=", "").ifEmpty { cleanUrl.substringAfter("src=", "").ifEmpty { "dji-sdk-view-asli" } }
+                val host = if (cleanUrl.contains("rtc.blackeye.id")) "rtc.blackeye.id" else "10.12.0.15"
+                val auth = if (cleanUrl.contains("@")) cleanUrl.substringAfter("://").substringBefore("@") + "@" else "streamer:Rahas!%402025@"
+                "rtmp://$auth$host:1936/live/$streamName"
+            } else {
+                cleanUrl
             }
 
-            // --- RTMP / RTSP EXECUTION PATH ---
-            val targetStreamUrl = cleanUrl
-
-            showToast("🚀 Starting Hardware RTMP/RTSP Stream (TCP): $targetStreamUrl")
+            showToast("🚀 Starting Hardware RTMP Stream (TCP): $targetStreamUrl")
             android.util.Log.i("KMZ_SysLog", "Optimized Hardware Stream Command Received: $targetStreamUrl")
             
             val liveStreamManager = dji.v5.manager.datacenter.MediaDataCenter.getInstance().liveStreamManager
