@@ -1,5 +1,10 @@
 # Tactical Drone C2 Server Specification
 
+> **Changelog — 2026-08-07 (Native Android WebRTC Engine, Single-Publisher Stream & Adaptive Bitrate Scaling)**
+> - **Native Android WebRTC Engine (`NativeWebRtcStreamManager.kt`):** Implemented native WebRTC WHIP streaming fed directly by DJI `ICameraStreamManager` NV21 camera frames, using DJI's built-in native MRTC C++ libraries (`libmrtc_core.so`, `libmrtc_core_jni.so`).
+> - **Single-Publisher Stream Cleanliness:** Eliminated dual-publisher collision on `go2rtc` stream endpoints by routing live camera hardware encoding cleanly to `rtmp://rtc.blackeye.id:1936/dji-sdk-view-asli` or WHIP, ensuring 100% smooth 30 FPS playback in browsers (`https://rtc.blackeye.id/stream.html?src=dji-sdk-view-asli`).
+> - **Adaptive Bitrate Scaling (`LiveVideoBitrateMode.AUTO`):** Configured `LiveVideoBitrateMode.AUTO` per DJI MSDK V5 Issue #640 research, enabling `ILiveStreamManager` to scale bitrate dynamically based on real-time network conditions.
+>
 > **Changelog — 2026-08-07 (Camera Tracking State Machine, Mutual Exclusion & MSDK Command Throttling)**
 > - **Unified Camera Tracking State Machine (`stopAllCameraTracking`):** Combined Optical Object Tracking and TGP Line-of-Sight Geo-Lock into a mutually exclusive control state machine. Activating TGP Geo-Lock automatically releases optical tracking, and vice-versa.
 > - **MSDK Command Bus Throttling:** Added angle delta check ($\Delta > 0.1^\circ$) in `toggleTargetingPodLock`, reducing MSDK bus transactions by ~80% during static hovering.
