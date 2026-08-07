@@ -166,7 +166,8 @@ object S3UploadManager {
 
         // Build the list URL: http://host:port/bucket?prefix=...&delimiter=/
         val authority = if (uri.port != -1) "${uri.scheme}://${uri.host}:${uri.port}" else "${uri.scheme}://${uri.host}"
-        val listUrl   = "$authority/$bucket?prefix=${java.net.URLEncoder.encode(prefix, "UTF-8")}&delimiter=${java.net.URLEncoder.encode("/", "UTF-8")}"
+        val encodedPrefix = java.net.URLEncoder.encode(prefix, "UTF-8").replace("+", "%20")
+        val listUrl   = "$authority/$bucket?prefix=$encodedPrefix&delimiter=/"
 
         Log.d(TAG, "Listing S3 folders at: $listUrl")
 
@@ -184,29 +185,28 @@ object S3UploadManager {
                     val body = response.body?.string() ?: ""
                     Log.d(TAG, "S3 List response: ${body.take(500)}")
 
-                    // Parse <CommonPrefixes><Prefix>folder/</Prefix></CommonPrefixes>
                     val folders = mutableListOf<String>()
-                    val regex = Regex("<Prefix>(.*?)</Prefix>")
-                    for (match in regex.findAll(body)) {
+
+                    // 1. Parse <CommonPrefixes><Prefix>folder/</Prefix></CommonPrefixes>
+                    val commonPrefixesRegex = Regex("<CommonPrefixes>\\s*<Prefix>(.*?)</Prefix>\\s*</CommonPrefixes>")
+                    for (match in commonPrefixesRegex.findAll(body)) {
                         val raw = match.groupValues[1].trim()
-                        // Strip leading prefix path and trailing slash to get folder name only
                         val name = raw.removePrefix(prefix).removeSuffix("/").trim()
-                        if (name.isNotEmpty() && name != ".keep") {
+                        if (name.isNotEmpty() && name != ".keep" && !folders.contains(name)) {
                             folders.add(name)
                         }
                     }
 
-                    if (folders.isEmpty()) {
-                        // Fallback: also check <Key> entries for folder-like paths
-                        val keyRegex = Regex("<Key>(.*?)</Key>")
-                        for (match in keyRegex.findAll(body)) {
-                            val raw = match.groupValues[1].removePrefix(prefix).trim()
-                            val parts = raw.split("/")
-                            if (parts.size >= 2 && parts[0].isNotEmpty()) {
-                                val folderName = parts[0]
-                                if (!folders.contains(folderName) && folderName != ".keep") {
-                                    folders.add(folderName)
-                                }
+                    // 2. Fallback: Parse <Key> entries for folder paths (e.g. folder/file.jpg)
+                    val keyRegex = Regex("<Key>(.*?)</Key>")
+                    for (match in keyRegex.findAll(body)) {
+                        val rawKey = match.groupValues[1].trim()
+                        val relPath = if (prefix.isNotEmpty() && rawKey.startsWith(prefix)) rawKey.substring(prefix.length) else rawKey
+                        val parts = relPath.split("/").filter { it.isNotEmpty() }
+                        if (parts.size > 1) {
+                            val folderName = parts[0]
+                            if (folderName != ".keep" && !folders.contains(folderName)) {
+                                folders.add(folderName)
                             }
                         }
                     }
