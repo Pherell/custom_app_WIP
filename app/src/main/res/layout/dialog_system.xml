@@ -365,15 +365,53 @@
                     android:background="@drawable/bg_btn_outline_green"
                     android:layout_marginBottom="16dp" />
 
-                <!-- RTMP VIDEO STREAMING CONFIG -->
+                <!-- FPV LIVE STREAMING RELAY CONFIG (WEBRTC WHIP / RTSP / RTMP) -->
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="RTMP VIDEO BROADCASTING"
+                    android:text="FPV LIVE STREAMING RELAY PROTOCOL"
                     android:textColor="#00FF66"
                     android:textSize="12sp"
                     android:textStyle="bold"
-                    android:layout_marginBottom="8dp" />
+                    android:layout_marginBottom="6dp" />
+
+                <!-- PROTOCOL SELECTOR PILLS -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:layout_marginBottom="8dp">
+                    <Button
+                        android:id="@+id/btnStreamModeWhip"
+                        android:layout_width="0dp"
+                        android:layout_height="36dp"
+                        android:layout_weight="1"
+                        android:text="⚡ WEBRTC WHIP"
+                        android:textColor="#00FF66"
+                        android:background="@drawable/bg_btn_outline_green"
+                        android:textSize="10sp"
+                        android:textStyle="bold"
+                        android:layout_marginEnd="3dp"/>
+                    <Button
+                        android:id="@+id/btnStreamModeRtsp"
+                        android:layout_width="0dp"
+                        android:layout_height="36dp"
+                        android:layout_weight="1"
+                        android:text="📡 RTSP (UDP)"
+                        android:textColor="#AAAAAA"
+                        android:background="@drawable/bg_telemetry_capsule"
+                        android:textSize="10sp"
+                        android:layout_marginEnd="3dp"/>
+                    <Button
+                        android:id="@+id/btnStreamModeRtmp"
+                        android:layout_width="0dp"
+                        android:layout_height="36dp"
+                        android:layout_weight="1"
+                        android:text="🌐 RTMP"
+                        android:textColor="#AAAAAA"
+                        android:background="@drawable/bg_telemetry_capsule"
+                        android:textSize="10sp"/>
+                </LinearLayout>
 
                 <EditText
                     android:id="@+id/etRtmpUrl"
@@ -382,10 +420,11 @@
                     android:textColor="#FFFFFF"
                     android:background="@drawable/bg_telemetry_capsule"
                     android:paddingHorizontal="10dp"
-                    android:hint="rtmp://rtc.blackeye.id:1936/dji-sdk-view"
+                    android:hint="http://streamer:Rahas!@2025@10.12.0.15:1984/api/whip?src=dji-sdk-view-asli"
                     android:textColorHint="#666666"
                     android:inputType="textUri"
-                    android:text="rtmp://rtc.blackeye.id:1936/dji-sdk-view"
+                    android:textSize="11sp"
+                    android:text="http://streamer:Rahas!@2025@10.12.0.15:1984/api/whip?src=dji-sdk-view-asli"
                     android:layout_marginBottom="8dp"/>
 
                 <LinearLayout
@@ -398,20 +437,22 @@
                         android:layout_width="0dp"
                         android:layout_height="40dp"
                         android:layout_weight="1"
-                        android:text="START RTMP"
+                        android:text="▶ START STREAM"
                         android:textColor="#00FF66"
                         android:background="@drawable/bg_btn_outline_green"
                         android:textSize="11sp"
+                        android:textStyle="bold"
                         android:layout_marginEnd="4dp"/>
                     <Button
                         android:id="@+id/btnStopRtmp"
                         android:layout_width="0dp"
                         android:layout_height="40dp"
                         android:layout_weight="1"
-                        android:text="STOP RTMP"
+                        android:text="⏹ STOP STREAM"
                         android:textColor="#FF3333"
                         android:background="@drawable/bg_btn_outline_red"
-                        android:textSize="11sp"/>
+                        android:textSize="11sp"
+                        android:textStyle="bold"/>
                 </LinearLayout>
 
 

@@ -5430,12 +5430,48 @@ class MainActivity : AppCompatActivity() {
         etMqttUser?.setText(sharedPrefs.getString("mqttUser", "admin"))
         etMqttPass?.setText(sharedPrefs.getString("mqttPass", "password"))
         
-        // RTMP STREAMING BINDS
+        // FPV STREAMING PROTOCOL SELECTOR BINDS
+        val btnStreamModeWhip = dialog.findViewById<android.widget.Button>(R.id.btnStreamModeWhip)
+        val btnStreamModeRtsp = dialog.findViewById<android.widget.Button>(R.id.btnStreamModeRtsp)
+        val btnStreamModeRtmp = dialog.findViewById<android.widget.Button>(R.id.btnStreamModeRtmp)
         val dBtnStartRtmp = dialog.findViewById<android.widget.Button>(R.id.btnStartRtmp)
         val dBtnStopRtmp = dialog.findViewById<android.widget.Button>(R.id.btnStopRtmp)
         val dEtRtmpUrl = dialog.findViewById<android.widget.EditText>(R.id.etRtmpUrl)
+
         val DEFAULT_WHIP_URL = "http://streamer:Rahas!@2025@10.12.0.15:1984/api/whip?src=dji-sdk-view-asli"
+        val DEFAULT_RTSP_URL = "rtsp://streamer:Rahas!@2025@10.12.0.15:8554/dji-sdk-view-asli"
+        val DEFAULT_RTMP_URL = "rtmp://10.12.0.15:1935/live/dji-sdk-view-asli"
+
         dEtRtmpUrl?.setText(sharedPrefs.getString("rtmpUrl", DEFAULT_WHIP_URL))
+
+        fun updateStreamModeButtons(activeMode: String) {
+            btnStreamModeWhip?.setTextColor(if (activeMode == "WHIP") android.graphics.Color.parseColor("#00FF66") else android.graphics.Color.parseColor("#AAAAAA"))
+            btnStreamModeWhip?.setBackgroundResource(if (activeMode == "WHIP") R.drawable.bg_btn_outline_green else R.drawable.bg_telemetry_capsule)
+
+            btnStreamModeRtsp?.setTextColor(if (activeMode == "RTSP") android.graphics.Color.parseColor("#00FF66") else android.graphics.Color.parseColor("#AAAAAA"))
+            btnStreamModeRtsp?.setBackgroundResource(if (activeMode == "RTSP") R.drawable.bg_btn_outline_green else R.drawable.bg_telemetry_capsule)
+
+            btnStreamModeRtmp?.setTextColor(if (activeMode == "RTMP") android.graphics.Color.parseColor("#00FF66") else android.graphics.Color.parseColor("#AAAAAA"))
+            btnStreamModeRtmp?.setBackgroundResource(if (activeMode == "RTMP") R.drawable.bg_btn_outline_green else R.drawable.bg_telemetry_capsule)
+        }
+
+        btnStreamModeWhip?.setOnClickListener {
+            dEtRtmpUrl?.setText(DEFAULT_WHIP_URL)
+            updateStreamModeButtons("WHIP")
+            showToast("Mode Selected: ⚡ WEBRTC WHIP (Sub-80ms)")
+        }
+
+        btnStreamModeRtsp?.setOnClickListener {
+            dEtRtmpUrl?.setText(DEFAULT_RTSP_URL)
+            updateStreamModeButtons("RTSP")
+            showToast("Mode Selected: 📡 RTSP UDP (<150ms)")
+        }
+
+        btnStreamModeRtmp?.setOnClickListener {
+            dEtRtmpUrl?.setText(DEFAULT_RTMP_URL)
+            updateStreamModeButtons("RTMP")
+            showToast("Mode Selected: 🌐 RTMP (Standard Push)")
+        }
         
         dBtnStartRtmp?.setOnClickListener {
             val url = dEtRtmpUrl?.text.toString()
