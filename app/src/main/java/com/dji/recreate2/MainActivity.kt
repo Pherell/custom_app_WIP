@@ -7655,10 +7655,14 @@ class MainActivity : AppCompatActivity() {
             }
             liveStreamManager?.stopStream(object : dji.v5.common.callback.CommonCallbacks.CompletionCallback {
                 override fun onSuccess() {
-                    showToast("FPV Stream Stopped!")
+                    runOnUiThread {
+                        showToast("FPV Stream Stopped!")
+                    }
                 }
                 override fun onFailure(error: dji.v5.common.error.IDJIError) {
-                    showToast("Failed to stop FPV Stream: ${error.description()}")
+                    runOnUiThread {
+                        showToast("Failed to stop FPV Stream: ${error.description()}")
+                    }
                 }
             })
         } catch (e: Exception) {
