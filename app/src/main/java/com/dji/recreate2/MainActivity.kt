@@ -7515,22 +7515,37 @@ class MainActivity : AppCompatActivity() {
                          cleanUrl.startsWith("whip://", ignoreCase = true) ||
                          cleanUrl.contains("/whip", ignoreCase = true)
 
-            // DUAL-ENCODING FIX:
-            // We NO LONGER call WhipWebRtcManager.startWhipStream here.
-            // Executing both Native WebRTC and DJI LiveStreamManager RTMP simultaneously OVERLOADS the Redmi 15C CPU/GPU!
-            // We purely rely on DJI's hardware RTMP encoder and let go2rtc server handle WebRTC conversion.
+            if (isWhip) {
+                showToast("⚡ Starting Native WHIP WebRTC (UDP) Stream...")
+                android.util.Log.i("KMZ_SysLog", "Native WHIP WebRTC Command Received: $cleanUrl")
 
-            val targetStreamUrl = if (isWhip) {
-                val streamName = cleanUrl.substringAfter("dst=", "").ifEmpty { cleanUrl.substringAfter("src=", "").ifEmpty { "dji-sdk-view-asli" } }
-                val host = if (cleanUrl.contains("rtc.blackeye.id")) "rtc.blackeye.id" else "10.12.0.15"
-                val auth = if (cleanUrl.contains("@")) cleanUrl.substringAfter("://").substringBefore("@") + "@" else "streamer:Rahas!%402025@"
-                "rtmp://$auth$host:1936/live/$streamName"
-            } else {
-                cleanUrl
+                // EXCLUSIVE WHIP EXECUTION PATH:
+                // We use native WebRTC (UDP) which gracefully handles packet loss via PLI/NACK without TCP head-of-line blocking.
+                com.dji.recreate2.sync.WhipWebRtcManager.startWhipStream(
+                    context = this,
+                    whipUrl = cleanUrl,
+                    onSuccess = {
+                        runOnUiThread {
+                            showToast("✔ WHIP WebRTC (UDP) Stream ACTIVE!")
+                            log("WHIP WebRTC (UDP) Stream active to: $cleanUrl")
+                        }
+                    },
+                    onError = { err ->
+                        runOnUiThread {
+                            showToast("✗ WHIP Error: $err")
+                            log("WHIP Error: $err")
+                        }
+                    }
+                )
+                // RETURN EARLY! Do NOT start DJI's RTMP encoder over TCP, avoiding double-encoding and TCP stutter.
+                return
             }
 
-            showToast("🚀 Starting Low-Latency Hardware Stream: $targetStreamUrl")
-            android.util.Log.i("KMZ_SysLog", "Optimized Low-Latency Stream Command Received: $targetStreamUrl")
+            // --- RTMP / RTSP EXECUTION PATH ---
+            val targetStreamUrl = cleanUrl
+
+            showToast("🚀 Starting Hardware RTMP/RTSP Stream (TCP): $targetStreamUrl")
+            android.util.Log.i("KMZ_SysLog", "Optimized Hardware Stream Command Received: $targetStreamUrl")
             
             val liveStreamManager = dji.v5.manager.datacenter.MediaDataCenter.getInstance().liveStreamManager
             
