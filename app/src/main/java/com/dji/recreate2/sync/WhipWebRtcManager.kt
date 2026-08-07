@@ -215,7 +215,7 @@ object WhipWebRtcManager {
      */
     private fun generateSyntheticSdpOffer(): String {
         val sessionOwner = System.currentTimeMillis()
-        return """
+        val rawSdp = """
             v=0
             o=- $sessionOwner 2 IN IP4 127.0.0.1
             s=Recreate2 Drone WHIP Streamer
@@ -237,5 +237,8 @@ object WhipWebRtcManager {
             a=rtcp-fb:96 goog-remb
             a=setup:actpass
         """.trimIndent()
+
+        // SDP RFC 4566 requires strict CRLF (\r\n) line endings on every line
+        return rawSdp.replace("\r\n", "\n").replace("\n", "\r\n") + "\r\n"
     }
 }

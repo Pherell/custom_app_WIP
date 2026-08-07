@@ -7544,10 +7544,13 @@ class MainActivity : AppCompatActivity() {
             val liveStreamManager = dji.v5.manager.datacenter.MediaDataCenter.getInstance().liveStreamManager
             
             if (liveStreamManager != null) {
-                val isRtsp = cleanUrl.startsWith("rtsp://", ignoreCase = true)
-                
-                val liveStreamConfig = if (isRtsp) {
-                    val port = cleanUrl.substringAfterLast(":", "8554").toIntOrNull() ?: 8554
+                val isRtspServerOnly = cleanUrl.equals("rtsp://", ignoreCase = true) || 
+                                       cleanUrl.startsWith("rtsp://:", ignoreCase = true) ||
+                                       (cleanUrl.startsWith("rtsp://", ignoreCase = true) && !cleanUrl.substring(7).contains("/"))
+
+                val liveStreamConfig = if (isRtspServerOnly) {
+                    val portStr = cleanUrl.substringAfterLast(":").takeWhile { it.isDigit() }
+                    val port = portStr.toIntOrNull() ?: 8554
                     val rtspSettings = dji.v5.manager.datacenter.livestream.settings.RtspSettings.Builder()
                         .setPort(port)
                         .build()
@@ -7599,7 +7602,7 @@ class MainActivity : AppCompatActivity() {
                 liveStreamManager.startStream(object : dji.v5.common.callback.CommonCallbacks.CompletionCallback {
                     override fun onSuccess() {
                         runOnUiThread {
-                            val protoLabel = if (isRtsp) "RTSP Server" else "RTMP (High-Quality)"
+                            val protoLabel = if (cleanUrl.startsWith("rtsp://", ignoreCase = true)) "RTSP" else "RTMP"
                             showToast("✔ Ultra-Fast $protoLabel Stream ACTIVE: $cleanUrl")
                             log("Optimized Low-Latency $protoLabel Stream started successfully to: $cleanUrl")
                         }
