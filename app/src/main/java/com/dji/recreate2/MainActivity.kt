@@ -7523,8 +7523,8 @@ class MainActivity : AppCompatActivity() {
                 // If user clicks WHIP, we map it to RTMP push since pure WHIP cannot be hardware-encoded on this device.
                 val streamName = cleanUrl.substringAfter("dst=", "").ifEmpty { cleanUrl.substringAfter("src=", "").ifEmpty { "dji-sdk-view-asli" } }
                 val host = if (cleanUrl.contains("rtc.blackeye.id")) "rtc.blackeye.id" else "10.12.0.15"
-                val auth = if (cleanUrl.contains("@")) cleanUrl.substringAfter("://").substringBefore("@") + "@" else "streamer:Rahas!%402025@"
-                "rtmp://$auth$host:1936/live/$streamName"
+                // STRIP AUTH for RTMP Push: go2rtc RTMP server does not require URL auth by default, and DJI encoder might crash parsing it!
+                "rtmp://$host:1936/live/$streamName"
             } else {
                 cleanUrl
             }
