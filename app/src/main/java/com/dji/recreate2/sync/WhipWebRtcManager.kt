@@ -137,8 +137,11 @@ object WhipWebRtcManager {
                 if (targetUrl.contains("/api/whip")) {
                     targetUrl = targetUrl.replace("/api/whip", "/api/webrtc")
                 }
+                if (targetUrl.contains("?src=")) {
+                    targetUrl = targetUrl.replace("?src=", "?dst=")
+                }
                 if (!targetUrl.contains("/api/")) {
-                    targetUrl = if (targetUrl.endsWith("/")) "${targetUrl}api/webrtc?src=dji-sdk-view-asli" else "${targetUrl}/api/webrtc?src=dji-sdk-view-asli"
+                    targetUrl = if (targetUrl.endsWith("/")) "${targetUrl}api/webrtc?dst=dji-sdk-view-asli" else "${targetUrl}/api/webrtc?dst=dji-sdk-view-asli"
                 }
 
                 Log.d(TAG, "WHIP Target URL: $targetUrl with User: $finalUser")
