@@ -220,8 +220,11 @@ class ObjectTrackingOverlayView @JvmOverloads constructor(
             canvas.drawLine(r.right - cornerLen, r.bottom, r.right, r.bottom, cornerPaint)
             canvas.drawLine(r.right, r.bottom - cornerLen, r.right, r.bottom, cornerPaint)
 
-            // Tactical Label Overlay
-            val text = "LOCK: OBJECT / HUMAN"
+            // Tactical CCTV AI Label Overlay
+            val cx = r.centerX() / w
+            val cy = r.centerY() / h
+            val distFromCenter = Math.hypot((cx - 0.5).toDouble(), (cy - 0.5).toDouble())
+            val text = if (distFromCenter < 0.03) "🎯 LOCKED: DEAD CENTER [AR TRACKING]" else "🔒 AR LOCK: CENTERING GIMBAL..."
             canvas.drawText(text, r.left, Math.max(25f, r.top - 8f), textPaint)
         }
     }

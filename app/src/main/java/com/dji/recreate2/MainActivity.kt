@@ -4617,9 +4617,14 @@ class MainActivity : AppCompatActivity() {
                             )
                         }
 
-                        val alpha = 0.12f
-                        lastTargetNormX += (0.5f - lastTargetNormX) * alpha
-                        lastTargetNormY += (0.5f - lastTargetNormY) * alpha
+                        // Physical Camera Optical Shift: Moves AR bounding box lock-step with camera rotation
+                        val fovH = 60.0
+                        val fovV = 45.0
+                        val dt = 0.05
+                        lastTargetNormX -= ((yawSpeed * dt) / fovH).toFloat()
+                        lastTargetNormY += ((pitchSpeed * dt) / fovV).toFloat()
+                        lastTargetNormX = lastTargetNormX.coerceIn(0.05f, 0.95f)
+                        lastTargetNormY = lastTargetNormY.coerceIn(0.05f, 0.95f)
 
                         runOnUiThread {
                             objectTrackingOverlay?.updateTargetPosition(lastTargetNormX, lastTargetNormY)
