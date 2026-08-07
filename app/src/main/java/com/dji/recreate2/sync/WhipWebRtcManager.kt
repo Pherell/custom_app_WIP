@@ -34,7 +34,7 @@ object WhipWebRtcManager {
     var statusListener: ((status: String, isSuccess: Boolean) -> Unit)? = null
 
     /**
-     * Initiates a WHIP WebRTC Direct Push Session with a WHIP endpoint (e.g. http://10.12.0.15:1984/api/whip?src=dji-sdk-view-asli).
+     * Initiates a WHIP WebRTC Direct Push Session with a WHIP endpoint (e.g. http://streamer:Rahas!%402025@rtc.blackeye.id:1984/api/whip?src=dji-sdk-view-asli).
      */
     fun startWhipStream(
         context: Context,
