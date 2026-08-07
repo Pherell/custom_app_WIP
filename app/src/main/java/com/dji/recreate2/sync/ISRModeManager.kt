@@ -100,7 +100,8 @@ object ISRModeManager {
             return
         }
 
-        Log.d(TAG, "Mode 1 Triggered: Executing built-in photo capture...")
+        val captureStartTime = System.currentTimeMillis()
+        Log.d(TAG, "Mode 1 Triggered: Executing built-in photo capture at $captureStartTime...")
         showToast(ctx, "ISR Target Capture Initiated...")
 
         // Step 1: Trigger built-in camera photo shoot
@@ -114,7 +115,7 @@ object ISRModeManager {
                 Log.d(TAG, "Built-in Photo Shoot Action Succeeded. Fetching media file...")
                 // Step 2: Download original MediaFile & Upload to S3 on background thread
                 isrExecutor.submit {
-                    downloadAndUploadLatestPhoto(ctx)
+                    downloadAndUploadLatestPhoto(ctx, captureStartTime)
                 }
             }
 
@@ -130,11 +131,8 @@ object ISRModeManager {
      * Pulls the latest MediaFile from camera storage, downloads the full original JPEG,
      * and uploads it to S3.
      */
-    private fun downloadAndUploadLatestPhoto(context: Context) {
+    private fun downloadAndUploadLatestPhoto(context: Context, captureStartTime: Long = 0L) {
         try {
-            // Give camera storage 1.5s to write the file header
-            Thread.sleep(1500)
-
             val mediaManager = MediaDataCenter.getInstance().mediaManager
             if (mediaManager == null) {
                 Log.e(TAG, "MediaManager is null. Cannot download photo.")
@@ -142,35 +140,48 @@ object ISRModeManager {
                 return
             }
 
-            val pullLatch = CountDownLatch(1)
-            var pulledFiles: List<MediaFile> = emptyList()
+            var latestFile: MediaFile? = null
+            var attempts = 0
+            val maxAttempts = 3
 
-            val param = PullMediaFileListParam.Builder().build()
-            mediaManager.pullMediaFileListFromCamera(param, object : CommonCallbacks.CompletionCallback {
-                override fun onSuccess() {
-                    pulledFiles = mediaManager.mediaFileListData.data ?: emptyList()
-                    pullLatch.countDown()
+            while (attempts < maxAttempts && latestFile == null) {
+                attempts++
+                Thread.sleep(if (attempts == 1) 1500L else 1000L) // Wait for media indexer
+
+                val pullLatch = CountDownLatch(1)
+                var pulledFiles: List<MediaFile> = emptyList()
+
+                val param = PullMediaFileListParam.Builder().build()
+                mediaManager.pullMediaFileListFromCamera(param, object : CommonCallbacks.CompletionCallback {
+                    override fun onSuccess() {
+                        pulledFiles = mediaManager.mediaFileListData.data ?: emptyList()
+                        pullLatch.countDown()
+                    }
+
+                    override fun onFailure(error: IDJIError) {
+                        Log.e(TAG, "Failed to pull media file list (Attempt $attempts): ${error.description()}")
+                        pullLatch.countDown()
+                    }
+                })
+
+                val listOk = pullLatch.await(10, TimeUnit.SECONDS)
+                if (listOk && pulledFiles.isNotEmpty()) {
+                    val candidatePhotos = pulledFiles.filter {
+                        it.fileName.endsWith(".jpg", ignoreCase = true) ||
+                        it.fileName.endsWith(".jpeg", ignoreCase = true) ||
+                        it.fileName.endsWith(".dng", ignoreCase = true)
+                    }
+                    if (candidatePhotos.isNotEmpty()) {
+                        latestFile = candidatePhotos.last()
+                    }
                 }
+            }
 
-                override fun onFailure(error: IDJIError) {
-                    Log.e(TAG, "Failed to pull media file list: ${error.description()}")
-                    pullLatch.countDown()
-                }
-            })
-
-            val listOk = pullLatch.await(10, TimeUnit.SECONDS)
-            if (!listOk || pulledFiles.isEmpty()) {
-                Log.e(TAG, "Media file list is empty or timed out.")
+            if (latestFile == null) {
+                Log.e(TAG, "Media file list is empty or timed out after $maxAttempts attempts.")
                 isProcessingCapture.set(false)
                 return
             }
-
-            // Get the latest captured photo file
-            val latestFile = pulledFiles.filter {
-                it.fileName.endsWith(".jpg", ignoreCase = true) ||
-                it.fileName.endsWith(".jpeg", ignoreCase = true) ||
-                it.fileName.endsWith(".dng", ignoreCase = true)
-            }.lastOrNull() ?: pulledFiles.last()
 
             Log.d(TAG, "Downloading latest high-res photo: ${latestFile.fileName} (${latestFile.fileSize} bytes)...")
 

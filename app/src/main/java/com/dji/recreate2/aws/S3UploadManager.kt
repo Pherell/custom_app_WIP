@@ -191,7 +191,8 @@ object S3UploadManager {
                     val commonPrefixesRegex = Regex("<CommonPrefixes>\\s*<Prefix>(.*?)</Prefix>\\s*</CommonPrefixes>")
                     for (match in commonPrefixesRegex.findAll(body)) {
                         val raw = match.groupValues[1].trim()
-                        val name = raw.removePrefix(prefix).removeSuffix("/").trim()
+                        val relative = if (prefix.isNotEmpty() && raw.startsWith(prefix)) raw.substring(prefix.length) else raw
+                        val name = relative.split("/").firstOrNull { it.isNotEmpty() }?.trim() ?: ""
                         if (name.isNotEmpty() && name != ".keep" && !folders.contains(name)) {
                             folders.add(name)
                         }

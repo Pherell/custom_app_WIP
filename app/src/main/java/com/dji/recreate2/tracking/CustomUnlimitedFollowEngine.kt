@@ -42,15 +42,24 @@ object CustomUnlimitedFollowEngine {
     }
 
     /**
-     * Updates target observation coordinates and computes velocity vector.
+     * Updates target observation coordinates and computes velocity vector with EMA smoothing.
      */
     fun updateTargetObservation(normX: Float, normY: Float) {
         val now = System.currentTimeMillis()
         if (lastObservedTime > 0) {
             val dt = (now - lastObservedTime) / 1000.0f
             if (dt > 0.01f) {
-                targetVelX = (normX - targetLastNormX) / dt
-                targetVelY = (normY - targetLastNormY) / dt
+                val instVelX = (normX - targetLastNormX) / dt
+                val instVelY = (normY - targetLastNormY) / dt
+                
+                // Fix: Apply Exponential Moving Average (EMA) smoothing to prevent zero-velocity drops on duplicate frames
+                if (targetVelX == 0.0f && targetVelY == 0.0f) {
+                    targetVelX = instVelX
+                    targetVelY = instVelY
+                } else if (instVelX != 0.0f || instVelY != 0.0f) {
+                    targetVelX = 0.6f * targetVelX + 0.4f * instVelX
+                    targetVelY = 0.6f * targetVelY + 0.4f * instVelY
+                }
             }
         }
         targetLastNormX = normX
