@@ -66,20 +66,46 @@ object WhipWebRtcManager {
 
                 // 1. Generate local WebRTC SDP Offer
                 val sdpOffer = generateSyntheticSdpOffer()
-
                 val requestBody = sdpOffer.toRequestBody("application/sdp".toMediaTypeOrNull())
+
+                // Extract user:pass from URL safely even if password contains @ symbol
+                var targetUrl = cleanUrl
+                var extractedUser: String? = null
+                var extractedPass: String? = null
+
+                if (cleanUrl.contains("@")) {
+                    val schemeEnd = cleanUrl.indexOf("://")
+                    if (schemeEnd != -1) {
+                        val scheme = cleanUrl.substring(0, schemeEnd + 3)
+                        val rest = cleanUrl.substring(schemeEnd + 3)
+                        val lastAt = rest.lastIndexOf("@")
+                        val firstSlash = rest.indexOf("/")
+
+                        if (lastAt != -1 && (firstSlash == -1 || lastAt < firstSlash)) {
+                            val userPassPart = rest.substring(0, lastAt)
+                            val hostAndPathPart = rest.substring(lastAt + 1)
+                            targetUrl = scheme + hostAndPathPart
+
+                            val colonIdx = userPassPart.indexOf(":")
+                            if (colonIdx != -1) {
+                                extractedUser = userPassPart.substring(0, colonIdx)
+                                extractedPass = userPassPart.substring(colonIdx + 1)
+                            } else {
+                                extractedUser = userPassPart
+                            }
+                        }
+                    }
+                }
+
+                val finalUser = if (!extractedUser.isNullOrEmpty()) extractedUser else username
+                val finalPass = if (!extractedPass.isNullOrEmpty()) extractedPass else password
+
                 val requestBuilder = Request.Builder()
-                    .url(cleanUrl)
+                    .url(targetUrl)
                     .post(requestBody)
 
-                // 2. Add HTTP Basic Auth if credentials are provided in URL or parameters
-                val uri = java.net.URI.create(cleanUrl)
-                val userInfo = uri.userInfo
-                if (!userInfo.isNullOrEmpty()) {
-                    val authHeader = "Basic " + Base64.encodeToString(userInfo.toByteArray(Charsets.UTF_8), Base64.NO_WRAP)
-                    requestBuilder.header("Authorization", authHeader)
-                } else if (username.isNotEmpty() && password.isNotEmpty()) {
-                    val credentials = "$username:$password"
+                if (!finalUser.isNullOrEmpty() && !finalPass.isNullOrEmpty()) {
+                    val credentials = "$finalUser:$finalPass"
                     val authHeader = "Basic " + Base64.encodeToString(credentials.toByteArray(Charsets.UTF_8), Base64.NO_WRAP)
                     requestBuilder.header("Authorization", authHeader)
                 }
