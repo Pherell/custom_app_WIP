@@ -101,8 +101,7 @@ dependencies {
     // EXIF
     implementation("androidx.exifinterface:exifinterface:1.3.7")
     
-    // L-08: Encrypted credential storage for MQTT password
-    implementation("androidx.security:security-crypto:1.1.0-alpha06")
+    // HTTP OkHttp
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
 }
-dependencies { implementation("com.squareup.okhttp3:okhttp:4.12.0") }
 

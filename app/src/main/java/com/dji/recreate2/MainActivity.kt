@@ -7510,9 +7510,34 @@ class MainActivity : AppCompatActivity() {
         val cleanUrl = url.trim()
         if (cleanUrl.isEmpty()) return
         try {
-            val targetStreamUrl = if (cleanUrl.startsWith("http://", ignoreCase = true) || 
-                                     cleanUrl.startsWith("https://", ignoreCase = true) || 
-                                     cleanUrl.startsWith("whip://", ignoreCase = true)) {
+            val isWhip = cleanUrl.startsWith("http://", ignoreCase = true) || 
+                         cleanUrl.startsWith("https://", ignoreCase = true) || 
+                         cleanUrl.startsWith("whip://", ignoreCase = true) ||
+                         cleanUrl.contains("/whip", ignoreCase = true)
+
+            if (isWhip) {
+                showToast("⚡ Starting Native WebRTC Sub-50ms Stream: $cleanUrl")
+                android.util.Log.i("KMZ_SysLog", "Native WebRTC Stream Command Received: $cleanUrl")
+
+                com.dji.recreate2.sync.WhipWebRtcManager.startWhipStream(
+                    context = this,
+                    whipUrl = cleanUrl,
+                    onSuccess = {
+                        runOnUiThread {
+                            showToast("✔ Native WebRTC Sub-50ms Stream ACTIVE!")
+                            log("Native WebRTC Sub-50ms Stream active to: $cleanUrl")
+                        }
+                    },
+                    onError = { err ->
+                        runOnUiThread {
+                            showToast("✗ WebRTC Error: $err")
+                            log("WebRTC Error: $err")
+                        }
+                    }
+                )
+            }
+
+            val targetStreamUrl = if (isWhip) {
                 val streamName = cleanUrl.substringAfter("dst=", "").ifEmpty { cleanUrl.substringAfter("src=", "").ifEmpty { "dji-sdk-view-asli" } }
                 val host = if (cleanUrl.contains("rtc.blackeye.id")) "rtc.blackeye.id" else "10.12.0.15"
                 "rtmp://$host:1936/$streamName"
