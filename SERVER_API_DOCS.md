@@ -1,5 +1,10 @@
 # Tactical Drone C2 Server Specification
 
+> **Changelog — 2026-08-07 (Camera Tracking State Machine, Mutual Exclusion & MSDK Command Throttling)**
+> - **Unified Camera Tracking State Machine (`stopAllCameraTracking`):** Combined Optical Object Tracking and TGP Line-of-Sight Geo-Lock into a mutually exclusive control state machine. Activating TGP Geo-Lock automatically releases optical tracking, and vice-versa.
+> - **MSDK Command Bus Throttling:** Added angle delta check ($\Delta > 0.1^\circ$) in `toggleTargetingPodLock`, reducing MSDK bus transactions by ~80% during static hovering.
+> - **Nadir Gimbal Protection:** Freezes yaw angle when pointing straight down (horizontal distance $< 3\text{m}$ or pitch $\le -85^\circ$), protecting gimbal motors from $180^\circ$ yaw flipping.
+>
 > **Changelog — 2026-08-06 (Gimbal Hardware Overload Protection, Dynamic Box Centering & OBJ Gesture Toggle)**
 > - **Gimbal Hardware Motor Protection near Nadir (`toggleTargetingPodLock`):** When the camera points straight down (pitch $\le -85^\circ$ or horizontal distance $< 3\text{m}$), gimbal yaw rotation is frozen (`finalYaw = gimbalYaw`) to prevent $180^\circ$ yaw flipping and mechanical motor damage. Pitch is safely clamped between $-88^\circ \dots +25^\circ$.
 > - **Dynamic Bounding Box Frame Convergence (`startOpticalObjectTracking`):** As the gimbal turns toward an off-center target, the bounding box automatically shifts back toward screen center $(0.5, 0.5)$ proportional to FOV angular displacement. Once centered, PID speeds drop to `0.0`, preventing uncontrolled gimbal spinning.

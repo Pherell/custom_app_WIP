@@ -4551,7 +4551,36 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun stopAllCameraTracking() {
+        if (isObjectTrackingActive) {
+            isObjectTrackingActive = false
+            trackingLoopThread?.interrupt()
+            trackingLoopThread = null
+        }
+        if (isTgpGeoLockActive) {
+            isTgpGeoLockActive = false
+            tgpLockThread?.interrupt()
+            tgpLockThread = null
+            runOnUiThread {
+                findViewById<TextView>(R.id.btnTgpLock)?.setTextColor(android.graphics.Color.YELLOW)
+            }
+        }
+        val gimbalSpeedKey = KeyTools.createKey(GimbalKey.KeyRotateBySpeed, ComponentIndexType.LEFT_OR_MAIN)
+        runOnUiThread {
+            KeyManager.getInstance().performAction(gimbalSpeedKey, GimbalSpeedRotation(0.0, 0.0, 0.0, CtrlInfo()), null)
+        }
+    }
+
     private fun startOpticalObjectTracking(normX: Float, normY: Float, normW: Float, normH: Float) {
+        if (isTgpGeoLockActive) {
+            isTgpGeoLockActive = false
+            tgpLockThread?.interrupt()
+            tgpLockThread = null
+            runOnUiThread {
+                findViewById<TextView>(R.id.btnTgpLock)?.setTextColor(android.graphics.Color.YELLOW)
+            }
+        }
+
         isObjectTrackingActive = true
         log("Started Optical Object Tracking on Target Box: center=($normX, $normY), size=($normW x $normH)")
         showToast("LOCK: OBJECT / HUMAN ACTIVE")
@@ -4628,15 +4657,17 @@ class MainActivity : AppCompatActivity() {
 
     private fun toggleTargetingPodLock(targetLat: Double? = null, targetLon: Double? = null, targetAlt: Double? = null) {
         if (isTgpGeoLockActive && targetLat == null) {
-            isTgpGeoLockActive = false
-            tgpLockThread?.interrupt()
-            tgpLockThread = null
+            stopAllCameraTracking()
             log("Targeting Pod Geo-Lock UNLOCKED")
             showToast("TGP GEO-LOCK: UNLOCKED")
-            runOnUiThread {
-                findViewById<TextView>(R.id.btnTgpLock)?.setTextColor(android.graphics.Color.YELLOW)
-            }
             return
+        }
+
+        if (isObjectTrackingActive) {
+            isObjectTrackingActive = false
+            trackingLoopThread?.interrupt()
+            trackingLoopThread = null
+            objectTrackingOverlay?.unlockTarget()
         }
 
         val dLat = if (targetLat != null && targetLat != 0.0) targetLat else droneLat
@@ -4664,6 +4695,8 @@ class MainActivity : AppCompatActivity() {
         tgpLockThread = Thread {
             try {
                 val gimbalAngleKey = KeyTools.createKey(GimbalKey.KeyRotateByAngle, ComponentIndexType.LEFT_OR_MAIN)
+                var lastSentPitch = -999.0
+                var lastSentYaw = -999.0
 
                 while (!Thread.currentThread().isInterrupted && isTgpGeoLockActive) {
                     val curLat = droneLat
@@ -4679,7 +4712,6 @@ class MainActivity : AppCompatActivity() {
                         val targetBearingDeg = (Math.toDegrees(Math.atan2(dE, dN)) + 360.0) % 360.0
                         val targetPitchDeg = Math.toDegrees(Math.atan2(dU, distanceHorizontal))
 
-                        // Protection: Clamp pitch safely & freeze yaw when pointing straight down to prevent hardware motor damage
                         val desiredPitch = targetPitchDeg.coerceIn(-88.0, 25.0)
                         val finalYaw = if (distanceHorizontal < 3.0) {
                             gimbalYaw
@@ -4688,15 +4720,21 @@ class MainActivity : AppCompatActivity() {
                             if (relativeYaw > 180.0) relativeYaw - 360.0 else relativeYaw
                         }
 
-                        val rotation = dji.sdk.keyvalue.value.gimbal.GimbalAngleRotation()
-                        rotation.mode = dji.sdk.keyvalue.value.gimbal.GimbalAngleRotationMode.ABSOLUTE_ANGLE
-                        rotation.pitch = desiredPitch
-                        rotation.yaw = finalYaw
-                        rotation.roll = 0.0
-                        rotation.duration = 0.1
+                        // Optimization: Throttled execution only when pitch or yaw shifts by > 0.1°
+                        if (Math.abs(desiredPitch - lastSentPitch) > 0.1 || Math.abs(finalYaw - lastSentYaw) > 0.1) {
+                            lastSentPitch = desiredPitch
+                            lastSentYaw = finalYaw
 
-                        runOnUiThread {
-                            KeyManager.getInstance().performAction(gimbalAngleKey, rotation, null)
+                            val rotation = dji.sdk.keyvalue.value.gimbal.GimbalAngleRotation()
+                            rotation.mode = dji.sdk.keyvalue.value.gimbal.GimbalAngleRotationMode.ABSOLUTE_ANGLE
+                            rotation.pitch = desiredPitch
+                            rotation.yaw = finalYaw
+                            rotation.roll = 0.0
+                            rotation.duration = 0.1
+
+                            runOnUiThread {
+                                KeyManager.getInstance().performAction(gimbalAngleKey, rotation, null)
+                            }
                         }
                     }
 
