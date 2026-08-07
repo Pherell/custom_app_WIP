@@ -202,6 +202,10 @@ object WhipWebRtcManager {
             a=msid-semantic: WMS
             m=video 9 UDP/TLS/RTP/SAVPF 96
             c=IN IP4 0.0.0.0
+            a=mid:0
+            a=ice-ufrag:rec2userfrag
+            a=ice-pwd:rec2password1234567890qwertyuiop
+            a=fingerprint:sha-256 00:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF
             a=rtcp:9 IN IP4 0.0.0.0
             a=sendonly
             a=rtpmap:96 H264/90000
