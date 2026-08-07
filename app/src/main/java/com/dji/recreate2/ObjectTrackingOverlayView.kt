@@ -54,7 +54,7 @@ class ObjectTrackingOverlayView @JvmOverloads constructor(
     var isTrackingActive = false
         private set
 
-    var isTouchSelectionEnabled = false
+    var isTouchSelectionEnabled = true
 
     val targetBoundingBox = RectF()
     private val dragStartBox = RectF()

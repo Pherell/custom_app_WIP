@@ -4538,12 +4538,14 @@ class MainActivity : AppCompatActivity() {
 
     private fun setupObjectTracking() {
         objectTrackingOverlay = findViewById(R.id.objectTrackingOverlay)
+        objectTrackingOverlay?.isTouchSelectionEnabled = true
 
         objectTrackingOverlay?.onTargetLockedListener = { normX, normY, normW, normH ->
             lastTargetNormX = normX
             lastTargetNormY = normY
             lastTargetNormW = normW
             lastTargetNormH = normH
+            triggerTapToFocus(normX.toDouble(), normY.toDouble())
             startOpticalObjectTracking(normX, normY, normW, normH)
         }
 
@@ -4595,28 +4597,26 @@ class MainActivity : AppCompatActivity() {
                     val errorX = lastTargetNormX - 0.5f
                     val errorY = 0.5f - lastTargetNormY
 
-                    val maxDegPerSec = 18.0
+                    val maxDegPerSec = 24.0
                     val yawSpeed = (errorX * maxDegPerSec).coerceIn(-maxDegPerSec, maxDegPerSec)
                     val pitchSpeed = (errorY * maxDegPerSec).coerceIn(-maxDegPerSec, maxDegPerSec)
 
-                    if (Math.abs(errorX) > 0.03f || Math.abs(errorY) > 0.03f) {
+                    if (Math.abs(errorX) > 0.015f || Math.abs(errorY) > 0.015f) {
                         runOnUiThread {
                             KeyManager.getInstance().performAction(
                                 gimbalSpeedKey,
-                                GimbalSpeedRotation(pitchSpeed, yawSpeed, 0.0, CtrlInfo()),
+                                GimbalSpeedRotation(pitchSpeed.toDouble(), yawSpeed.toDouble(), 0.0, CtrlInfo()),
                                 null
                             )
                         }
 
-                        val fovH = 60.0
-                        val fovV = 45.0
-                        val dt = 0.05
-                        lastTargetNormX -= ((yawSpeed * dt) / fovH).toFloat()
-                        lastTargetNormY += ((pitchSpeed * dt) / fovV).toFloat()
-                        lastTargetNormX = lastTargetNormX.coerceIn(0.05f, 0.95f)
-                        lastTargetNormY = lastTargetNormY.coerceIn(0.05f, 0.95f)
+                        val alpha = 0.12f
+                        lastTargetNormX += (0.5f - lastTargetNormX) * alpha
+                        lastTargetNormY += (0.5f - lastTargetNormY) * alpha
 
-                        objectTrackingOverlay?.updateTargetPosition(lastTargetNormX, lastTargetNormY)
+                        runOnUiThread {
+                            objectTrackingOverlay?.updateTargetPosition(lastTargetNormX, lastTargetNormY)
+                        }
                     } else {
                         runOnUiThread {
                             KeyManager.getInstance().performAction(
