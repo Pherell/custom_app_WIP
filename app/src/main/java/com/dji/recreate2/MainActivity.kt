@@ -7510,46 +7510,28 @@ class MainActivity : AppCompatActivity() {
         val cleanUrl = url.trim()
         if (cleanUrl.isEmpty()) return
         try {
-            val isWhip = cleanUrl.startsWith("http://", ignoreCase = true) || 
-                         cleanUrl.startsWith("https://", ignoreCase = true) || 
-                         cleanUrl.startsWith("whip://", ignoreCase = true) ||
-                         cleanUrl.contains("/whip", ignoreCase = true)
-
-            if (isWhip) {
-                showToast("⚡ Starting WHIP WebRTC Direct Push: $cleanUrl")
-                android.util.Log.i("KMZ_SysLog", "WHIP WebRTC Direct Push Command Received: $cleanUrl")
-
-                com.dji.recreate2.sync.WhipWebRtcManager.startWhipStream(
-                    context = this,
-                    whipUrl = cleanUrl,
-                    onSuccess = {
-                        runOnUiThread {
-                            showToast("✔ WHIP WebRTC Active (Sub-80ms): $cleanUrl")
-                            log("WHIP WebRTC Direct Push active to: $cleanUrl")
-                        }
-                    },
-                    onError = { err ->
-                        runOnUiThread {
-                            showToast("✗ WHIP Error: $err")
-                            log("WHIP Error: $err")
-                        }
-                    }
-                )
-                return
+            val targetStreamUrl = if (cleanUrl.startsWith("http://", ignoreCase = true) || 
+                                     cleanUrl.startsWith("https://", ignoreCase = true) || 
+                                     cleanUrl.startsWith("whip://", ignoreCase = true)) {
+                val streamName = cleanUrl.substringAfter("dst=", "").ifEmpty { cleanUrl.substringAfter("src=", "").ifEmpty { "dji-sdk-view-asli" } }
+                val host = if (cleanUrl.contains("rtc.blackeye.id")) "rtc.blackeye.id" else "10.12.0.15"
+                "rtmp://$host:1936/$streamName"
+            } else {
+                cleanUrl
             }
 
-            showToast("🚀 Starting Low-Latency Stream: $cleanUrl")
-            android.util.Log.i("KMZ_SysLog", "Optimized Low-Latency Stream Command Received: $cleanUrl")
+            showToast("🚀 Starting Low-Latency Hardware Stream: $targetStreamUrl")
+            android.util.Log.i("KMZ_SysLog", "Optimized Low-Latency Stream Command Received: $targetStreamUrl")
             
             val liveStreamManager = dji.v5.manager.datacenter.MediaDataCenter.getInstance().liveStreamManager
             
             if (liveStreamManager != null) {
-                val isRtspServerOnly = cleanUrl.equals("rtsp://", ignoreCase = true) || 
-                                       cleanUrl.startsWith("rtsp://:", ignoreCase = true) ||
-                                       (cleanUrl.startsWith("rtsp://", ignoreCase = true) && !cleanUrl.substring(7).contains("/"))
+                val isRtspServerOnly = targetStreamUrl.equals("rtsp://", ignoreCase = true) || 
+                                       targetStreamUrl.startsWith("rtsp://:", ignoreCase = true) ||
+                                       (targetStreamUrl.startsWith("rtsp://", ignoreCase = true) && !targetStreamUrl.substring(7).contains("/"))
 
                 val liveStreamConfig = if (isRtspServerOnly) {
-                    val portStr = cleanUrl.substringAfterLast(":").takeWhile { it.isDigit() }
+                    val portStr = targetStreamUrl.substringAfterLast(":").takeWhile { it.isDigit() }
                     val port = portStr.toIntOrNull() ?: 8554
                     val rtspSettings = dji.v5.manager.datacenter.livestream.settings.RtspSettings.Builder()
                         .setPort(port)
@@ -7560,7 +7542,7 @@ class MainActivity : AppCompatActivity() {
                         .build()
                 } else {
                     val rtmpSettings = dji.v5.manager.datacenter.livestream.settings.RtmpSettings.Builder()
-                        .setUrl(cleanUrl)
+                        .setUrl(targetStreamUrl)
                         .build()
                     dji.v5.manager.datacenter.livestream.LiveStreamSettings.Builder()
                         .setLiveStreamType(dji.v5.manager.datacenter.livestream.LiveStreamType.RTMP)
