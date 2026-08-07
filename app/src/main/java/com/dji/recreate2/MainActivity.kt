@@ -4552,6 +4552,20 @@ class MainActivity : AppCompatActivity() {
         objectTrackingOverlay?.onTargetUnlockedListener = {
             stopOpticalObjectTracking()
         }
+
+        try {
+            val perceptionManager = dji.v5.manager.aircraft.perception.PerceptionManager.getInstance()
+            perceptionManager.addPerceptionInformationListener { info ->
+                runOnUiThread {
+                    if (info != null && !isObjectTrackingActive) {
+                        val boxes = mutableListOf<DetectedObjectBox>()
+                        objectTrackingOverlay?.updateDetectedObjects(boxes)
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            log("PerceptionManager listener setup: ${e.message}")
+        }
     }
 
     private fun stopAllCameraTracking() {

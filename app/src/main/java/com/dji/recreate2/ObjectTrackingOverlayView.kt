@@ -10,9 +10,18 @@ import android.util.AttributeSet
 import android.view.MotionEvent
 import android.view.View
 
+data class DetectedObjectBox(
+    val normLeft: Float,
+    val normTop: Float,
+    val normRight: Float,
+    val normBottom: Float,
+    val label: String = "OBJECT",
+    val confidence: Float = 0.95f
+)
+
 /**
  * Custom View Overlay for Tactical Optical Object Locking & Tracking (Human, Vehicle, Intruder).
- * Supports Touch-and-Drag Bounding Box Selection and Single-Tap Quick Target Lock on FPV stream.
+ * Supports Touch-and-Drag Bounding Box Selection, Single-Tap Quick Target Lock, and Native AI Object Box Detection.
  */
 class ObjectTrackingOverlayView @JvmOverloads constructor(
     context: Context,
@@ -20,8 +29,27 @@ class ObjectTrackingOverlayView @JvmOverloads constructor(
     defStyleAttr: Int = 0
 ) : View(context, attrs, defStyleAttr) {
 
+    private val detectedBoxPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.parseColor("#00E5FF") // Tactical Cyan for Auto-Detected Objects
+        style = Paint.Style.STROKE
+        strokeWidth = 3f
+        pathEffect = DashPathEffect(floatArrayOf(8f, 8f), 0f)
+    }
+
+    private val detectedFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.parseColor("#1500E5FF")
+        style = Paint.Style.FILL
+    }
+
+    private val detectedTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.parseColor("#00E5FF")
+        textSize = 18f
+        isFakeBoldText = true
+        setShadowLayer(3f, 0f, 0f, Color.BLACK)
+    }
+
     private val boxPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#00FF66") // Tactical Neon Green
+        color = Color.parseColor("#00FF66") // Tactical Neon Green for Active Lock
         style = Paint.Style.STROKE
         strokeWidth = 5f
     }
@@ -62,6 +90,19 @@ class ObjectTrackingOverlayView @JvmOverloads constructor(
     private var startX = 0f
     private var startY = 0f
 
+    private val detectedObjectsList = java.util.concurrent.CopyOnWriteArrayList<DetectedObjectBox>()
+
+    fun updateDetectedObjects(boxes: List<DetectedObjectBox>) {
+        detectedObjectsList.clear()
+        detectedObjectsList.addAll(boxes)
+        postInvalidate()
+    }
+
+    fun clearDetectedObjects() {
+        detectedObjectsList.clear()
+        postInvalidate()
+    }
+
     var onTargetLockedListener: ((normX: Float, normY: Float, normWidth: Float, normHeight: Float) -> Unit)? = null
     var onTargetUnlockedListener: (() -> Unit)? = null
 
@@ -95,14 +136,31 @@ class ObjectTrackingOverlayView @JvmOverloads constructor(
                     val dy = Math.abs(event.y - startY)
 
                     if (dx < 30f && dy < 30f) {
-                        // Single Tap Quick Lock (120px x 120px bounding box)
-                        val boxSize = 120f
-                        targetBoundingBox.set(
-                            event.x - boxSize / 2f,
-                            event.y - boxSize / 2f,
-                            event.x + boxSize / 2f,
-                            event.y + boxSize / 2f
-                        )
+                        // Check if tap hit a detected AI object box
+                        val w = width.toFloat()
+                        val h = height.toFloat()
+                        val hitBox = detectedObjectsList.firstOrNull { item ->
+                            val r = RectF(item.normLeft * w, item.normTop * h, item.normRight * w, item.normBottom * h)
+                            r.contains(event.x, event.y)
+                        }
+
+                        if (hitBox != null && w > 0 && h > 0) {
+                            targetBoundingBox.set(
+                                hitBox.normLeft * w,
+                                hitBox.normTop * h,
+                                hitBox.normRight * w,
+                                hitBox.normBottom * h
+                            )
+                        } else {
+                            // Single Tap Quick Lock (120px x 120px bounding box)
+                            val boxSize = 120f
+                            targetBoundingBox.set(
+                                event.x - boxSize / 2f,
+                                event.y - boxSize / 2f,
+                                event.x + boxSize / 2f,
+                                event.y + boxSize / 2f
+                            )
+                        }
                     } else {
                         // Dragged Bounding Box Lock
                         targetBoundingBox.set(dragStartBox)
@@ -188,7 +246,16 @@ class ObjectTrackingOverlayView @JvmOverloads constructor(
         canvas.drawLine(w / 2f - 30f, h / 2f, w / 2f + 30f, h / 2f, crosshairPaint)
         canvas.drawLine(w / 2f, h / 2f - 30f, w / 2f, h / 2f + 30f, crosshairPaint)
 
-        // 2. Draw drag box if dragging
+        // 2. Draw auto-detected AI objects (Cyan Bounding Boxes)
+        for (item in detectedObjectsList) {
+            val rect = RectF(item.normLeft * w, item.normTop * h, item.normRight * w, item.normBottom * h)
+            canvas.drawRect(rect, detectedFillPaint)
+            canvas.drawRect(rect, detectedBoxPaint)
+            val labelText = "[${item.label} ${(item.confidence * 100).toInt()}%]"
+            canvas.drawText(labelText, rect.left, Math.max(20f, rect.top - 6f), detectedTextPaint)
+        }
+
+        // 3. Draw drag box if dragging
         if (isDragging) {
             canvas.drawRect(dragStartBox, fillPaint)
             canvas.drawRect(dragStartBox, boxPaint)
