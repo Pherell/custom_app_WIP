@@ -7609,7 +7609,9 @@ class MainActivity : AppCompatActivity() {
                 showToast("LiveStreamManager unavailable on this aircraft.")
             }
         } catch (e: Exception) {
-            showToast("LiveStream error: ${e.message}")
+            runOnUiThread {
+                showToast("LiveStream error: ${e.message}")
+            }
             android.util.Log.e("KMZ_SysLog", "LiveStream failed: ${e.message}")
             e.printStackTrace()
         }
