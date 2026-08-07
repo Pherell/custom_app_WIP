@@ -7559,7 +7559,8 @@ class MainActivity : AppCompatActivity() {
                 // 2. Set quality & bitrate mode before assigning liveStreamSettings so settings take full effect
                 try {
                     liveStreamManager.liveStreamQuality = dji.v5.manager.datacenter.livestream.StreamQuality.HD
-                    liveStreamManager.liveVideoBitrateMode = dji.v5.manager.datacenter.livestream.LiveVideoBitrateMode.AUTO
+                    liveStreamManager.liveVideoBitrateMode = dji.v5.manager.datacenter.livestream.LiveVideoBitrateMode.MANUAL
+                    liveStreamManager.setLiveVideoBitrate(2500000) // 2.5 Mbps Ultra-Smooth 30 FPS
                 } catch (e: Exception) {
                     android.util.Log.w("KMZ_SysLog", "Could not set stream quality/bitrate mode: ${e.message}")
                 }
