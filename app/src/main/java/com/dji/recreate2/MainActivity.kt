@@ -5586,6 +5586,21 @@ class MainActivity : AppCompatActivity() {
             showToast(if (newState) "⚡ FPV Acro Mode: ENABLED (Gimbal Roll Lock Active)" else "⚡ FPV Acro Mode: DISABLED (Standard POS Mode)")
         }
 
+        val btnToggleAiDetectionBoxes = dialog.findViewById<android.widget.Button>(R.id.btnToggleAiDetectionBoxes)
+        fun refreshAiBoxButtonUI() {
+            val visible = objectTrackingOverlay?.isAiDetectionBoxesVisible ?: true
+            btnToggleAiDetectionBoxes?.text = if (visible) "🤖 AI OBJECT DETECTION BOXES: ON ✓" else "🤖 AI OBJECT DETECTION BOXES: OFF (HIDDEN)"
+            btnToggleAiDetectionBoxes?.setTextColor(if (visible) android.graphics.Color.parseColor("#00E5FF") else android.graphics.Color.parseColor("#888888"))
+        }
+        refreshAiBoxButtonUI()
+
+        btnToggleAiDetectionBoxes?.setOnClickListener {
+            val newState = !(objectTrackingOverlay?.isAiDetectionBoxesVisible ?: true)
+            objectTrackingOverlay?.isAiDetectionBoxesVisible = newState
+            refreshAiBoxButtonUI()
+            showToast(if (newState) "🤖 AI Object Detection Boxes: VISIBLE" else "🤖 AI Object Detection Boxes: HIDDEN")
+        }
+
         // Mode 1: Capture drone camera feed only (no HUD) and upload to S3
         btnIsrMode1CaptureNow?.setOnClickListener {
             val ts = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format(java.util.Date())

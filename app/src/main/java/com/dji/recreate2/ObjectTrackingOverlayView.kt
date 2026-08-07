@@ -83,6 +83,7 @@ class ObjectTrackingOverlayView @JvmOverloads constructor(
         private set
 
     var isTouchSelectionEnabled = true
+    var isAiDetectionBoxesVisible = true
 
     val targetBoundingBox = RectF()
     private val dragStartBox = RectF()
@@ -246,13 +247,15 @@ class ObjectTrackingOverlayView @JvmOverloads constructor(
         canvas.drawLine(w / 2f - 30f, h / 2f, w / 2f + 30f, h / 2f, crosshairPaint)
         canvas.drawLine(w / 2f, h / 2f - 30f, w / 2f, h / 2f + 30f, crosshairPaint)
 
-        // 2. Draw auto-detected AI objects (Cyan Bounding Boxes)
-        for (item in detectedObjectsList) {
-            val rect = RectF(item.normLeft * w, item.normTop * h, item.normRight * w, item.normBottom * h)
-            canvas.drawRect(rect, detectedFillPaint)
-            canvas.drawRect(rect, detectedBoxPaint)
-            val labelText = "[${item.label} ${(item.confidence * 100).toInt()}%]"
-            canvas.drawText(labelText, rect.left, Math.max(20f, rect.top - 6f), detectedTextPaint)
+        // 2. Draw auto-detected AI objects (Cyan Bounding Boxes) if enabled in settings
+        if (isAiDetectionBoxesVisible) {
+            for (item in detectedObjectsList) {
+                val rect = RectF(item.normLeft * w, item.normTop * h, item.normRight * w, item.normBottom * h)
+                canvas.drawRect(rect, detectedFillPaint)
+                canvas.drawRect(rect, detectedBoxPaint)
+                val labelText = "[${item.label} ${(item.confidence * 100).toInt()}%]"
+                canvas.drawText(labelText, rect.left, Math.max(20f, rect.top - 6f), detectedTextPaint)
+            }
         }
 
         // 3. Draw drag box if dragging
