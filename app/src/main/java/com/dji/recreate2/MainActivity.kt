@@ -7515,27 +7515,10 @@ class MainActivity : AppCompatActivity() {
                          cleanUrl.startsWith("whip://", ignoreCase = true) ||
                          cleanUrl.contains("/whip", ignoreCase = true)
 
-            if (isWhip) {
-                showToast("⚡ Starting WHIP WebRTC Direct Push: $cleanUrl")
-                android.util.Log.i("KMZ_SysLog", "WHIP WebRTC Direct Push Command Received: $cleanUrl")
-
-                com.dji.recreate2.sync.WhipWebRtcManager.startWhipStream(
-                    context = this,
-                    whipUrl = cleanUrl,
-                    onSuccess = {
-                        runOnUiThread {
-                            showToast("✔ WHIP WebRTC Stream ACTIVE!")
-                            log("WHIP WebRTC Stream active to: $cleanUrl")
-                        }
-                    },
-                    onError = { err ->
-                        runOnUiThread {
-                            showToast("✗ WHIP Error: $err")
-                            log("WHIP Error: $err")
-                        }
-                    }
-                )
-            }
+            // DUAL-ENCODING FIX:
+            // We NO LONGER call WhipWebRtcManager.startWhipStream here.
+            // Executing both Native WebRTC and DJI LiveStreamManager RTMP simultaneously OVERLOADS the Redmi 15C CPU/GPU!
+            // We purely rely on DJI's hardware RTMP encoder and let go2rtc server handle WebRTC conversion.
 
             val targetStreamUrl = if (isWhip) {
                 val streamName = cleanUrl.substringAfter("dst=", "").ifEmpty { cleanUrl.substringAfter("src=", "").ifEmpty { "dji-sdk-view-asli" } }
@@ -7580,10 +7563,10 @@ class MainActivity : AppCompatActivity() {
                 liveStreamManager.cameraIndex = dji.sdk.keyvalue.value.common.ComponentIndexType.LEFT_OR_MAIN
 
                 // 2. Set quality & bitrate mode before assigning liveStreamSettings so settings take full effect
+                // FIX: Use StreamQuality.HD (720p) with AUTO bitrate
                 try {
                     liveStreamManager.liveStreamQuality = dji.v5.manager.datacenter.livestream.StreamQuality.HD
-                    liveStreamManager.liveVideoBitrateMode = dji.v5.manager.datacenter.livestream.LiveVideoBitrateMode.MANUAL
-                    liveStreamManager.setLiveVideoBitrate(2500000) // 2.5 Mbps Ultra-Smooth 30 FPS
+                    liveStreamManager.liveVideoBitrateMode = dji.v5.manager.datacenter.livestream.LiveVideoBitrateMode.AUTO
                 } catch (e: Exception) {
                     android.util.Log.w("KMZ_SysLog", "Could not set stream quality/bitrate mode: ${e.message}")
                 }
