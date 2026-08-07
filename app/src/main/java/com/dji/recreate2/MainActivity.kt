@@ -6796,13 +6796,13 @@ class MainActivity : AppCompatActivity() {
                         }
                         publishCommandReceipt(transactionId, command, "COMPLETED")
                     }
-                    "START_RTMP", "START_STREAM", "SET_STREAM", "STREAM_START" -> {
+                    "START_RTMP", "START_STREAM", "SET_STREAM", "STREAM_START", "START_WHIP", "WHIP_START" -> {
                         publishCommandReceipt(transactionId, command, "EXECUTING")
-                        val rtmpUrl = json.optString("url", json.optString("rtmp_url", ""))
+                        val rtmpUrl = json.optString("url", json.optString("rtmp_url", json.optString("whip_url", "")))
                         runOnUiThread { startRtmpStream(rtmpUrl) }
                         publishCommandReceipt(transactionId, command, "COMPLETED")
                     }
-                    "STOP_RTMP", "STOP_STREAM", "STREAM_STOP" -> {
+                    "STOP_RTMP", "STOP_STREAM", "STREAM_STOP", "STOP_WHIP", "WHIP_STOP" -> {
                         publishCommandReceipt(transactionId, command, "EXECUTING")
                         runOnUiThread { stopRtmpStream() }
                         publishCommandReceipt(transactionId, command, "COMPLETED")
@@ -7474,6 +7474,34 @@ class MainActivity : AppCompatActivity() {
         val cleanUrl = url.trim()
         if (cleanUrl.isEmpty()) return
         try {
+            val isWhip = cleanUrl.startsWith("http://", ignoreCase = true) || 
+                         cleanUrl.startsWith("https://", ignoreCase = true) || 
+                         cleanUrl.startsWith("whip://", ignoreCase = true) ||
+                         cleanUrl.contains("/whip", ignoreCase = true)
+
+            if (isWhip) {
+                showToast("⚡ Starting WHIP WebRTC Direct Push: $cleanUrl")
+                android.util.Log.i("KMZ_SysLog", "WHIP WebRTC Direct Push Command Received: $cleanUrl")
+
+                com.dji.recreate2.sync.WhipWebRtcManager.startWhipStream(
+                    context = this,
+                    whipUrl = cleanUrl,
+                    onSuccess = {
+                        runOnUiThread {
+                            showToast("✔ WHIP WebRTC Active (Sub-80ms): $cleanUrl")
+                            log("WHIP WebRTC Direct Push active to: $cleanUrl")
+                        }
+                    },
+                    onError = { err ->
+                        runOnUiThread {
+                            showToast("✗ WHIP Error: $err")
+                            log("WHIP Error: $err")
+                        }
+                    }
+                )
+                return
+            }
+
             showToast("🚀 Starting Low-Latency Stream: $cleanUrl")
             android.util.Log.i("KMZ_SysLog", "Optimized Low-Latency Stream Command Received: $cleanUrl")
             
@@ -7562,6 +7590,14 @@ class MainActivity : AppCompatActivity() {
         try {
             showToast("Stopping FPV Stream")
             android.util.Log.i("KMZ_SysLog", "FPV Stream Stop Command Received")
+
+            if (com.dji.recreate2.sync.WhipWebRtcManager.isStreaming) {
+                com.dji.recreate2.sync.WhipWebRtcManager.stopWhipStream(
+                    onSuccess = { runOnUiThread { showToast("WHIP WebRTC Stream Stopped!") } },
+                    onError = { err -> runOnUiThread { showToast("WHIP Stop Error: $err") } }
+                )
+            }
+
             val liveStreamManager = dji.v5.manager.datacenter.MediaDataCenter.getInstance().liveStreamManager
             liveStreamStatusListener?.let {
                 liveStreamManager?.removeLiveStreamStatusListener(it)

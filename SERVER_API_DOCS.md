@@ -47,6 +47,11 @@
 >
 > **Changelog — 2026-08-06 (Unlimited Distance Limitation Control & C2 Overrides)**
 > - **Unlimited Distance Control (`setDistanceLimitation`):** Implemented distance limitation bypass engine (`dji.sdk.keyvalue.key.FlightControllerKey.KeyDistanceLimitEnabled` and `KeyDistanceLimit`). Allows switching flight radius mode between **UNLIMITED (NO LIMITATION)** and custom distance limits (e.g. 50,000m).
+> **Changelog — 2026-08-07 (WHIP WebRTC Direct Push & Multi-Protocol Relay Engine)**
+> - **WHIP WebRTC Direct Push Engine (`WhipWebRtcManager`):** Added native WHIP (WebRTC HTTP Ingestion Protocol) direct push engine supporting sub-80ms real-time video transmission (`http://host:1984/api/whip?src=...`) to `go2rtc`, `MediaMTX`, and `SRS`.
+> - **Multi-Protocol Relay Selection (RTMP / RTSP / WHIP WebRTC):** Automatically detects stream protocol via URL prefix (`http://`, `https://`, `rtsp://`, `rtmp://`) or C2 MQTT commands.
+> - **Expanded C2 WHIP Commands:** Added MQTT command aliases over `dji-sdk/fleet/{clientId}/command`: `START_WHIP`, `WHIP_START`, `STOP_WHIP`, and `WHIP_STOP` with payload `{"url": "http://10.12.0.15:1984/api/whip?src=dji-sdk-view-asli"}`.
+>
 > **Changelog — 2026-08-07 (High-Performance FPV Live Streaming Optimization & RTSP Dual Protocol)**
 > - **Dual Protocol RTSP & RTMP Support (`startRtmpStream`):** Added native support for RTSP UDP low-latency streaming (`rtsp://host:port`) and RTMP streaming (`rtmp://...`) over `START_STREAM`, `START_RTMP`, `SET_STREAM`, and `STREAM_START` C2 MQTT commands.
 > - **30 FPS Stream Quality Optimization (`StreamQuality.HD` & `LiveVideoBitrateMode.AUTO`):** Explicitly configured DJI MSDK V5 `liveStreamQuality = StreamQuality.HD` (720p @ 30 FPS) and `liveVideoBitrateMode = LiveVideoBitrateMode.AUTO`, eliminating packet buffer lag and preventing RTMP throttling to 10 FPS.
