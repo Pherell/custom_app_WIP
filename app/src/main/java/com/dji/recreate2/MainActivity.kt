@@ -7550,16 +7550,20 @@ class MainActivity : AppCompatActivity() {
                         .build()
                 }
                     
-                liveStreamManager.liveStreamSettings = liveStreamConfig
-                
-                // Optimize stream performance: set quality to HD (720p 30FPS) and fixed OBS-grade 3.0 Mbps CBR
+                // 1. Set main camera as primary stream source
+                liveStreamManager.cameraIndex = dji.sdk.keyvalue.value.common.ComponentIndexType.LEFT_OR_MAIN
+
+                // 2. Set quality & bitrate mode before assigning liveStreamSettings so settings take full effect
                 try {
                     liveStreamManager.liveStreamQuality = dji.v5.manager.datacenter.livestream.StreamQuality.HD
                     liveStreamManager.liveVideoBitrateMode = dji.v5.manager.datacenter.livestream.LiveVideoBitrateMode.MANUAL
-                    liveStreamManager.setLiveVideoBitrate(3000000) // 3.0 Mbps Constant Bitrate (OBS Quality)
+                    liveStreamManager.setLiveVideoBitrate(3500000) // 3.5 Mbps Smooth 30 FPS
                 } catch (e: Exception) {
                     android.util.Log.w("KMZ_SysLog", "Could not set stream quality/bitrate mode: ${e.message}")
                 }
+
+                // 3. Assign liveStreamSettings
+                liveStreamManager.liveStreamSettings = liveStreamConfig
 
                 // Attach LiveStreamStatusListener to track telemetry & error events
                 if (liveStreamStatusListener == null) {
