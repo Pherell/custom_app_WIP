@@ -5539,6 +5539,26 @@ class MainActivity : AppCompatActivity() {
             showToast(if (newState) "Compass Tape Overlay: ENABLED" else "Compass Tape Overlay: DISABLED")
         }
 
+        val btnFpvAcroMode = dialog.findViewById<android.widget.Button>(R.id.btnFpvAcroMode)
+        fun refreshFpvAcroButtonUI() {
+            val enabled = com.dji.recreate2.flight.ConfinedSpaceFlightManager.isFpvAcroModeEnabled
+            btnFpvAcroMode?.text = if (enabled) "⚡ FPV ACRO FLIGHT MODE: ON ✓" else "⚡ FPV ACRO FLIGHT MODE: OFF"
+            btnFpvAcroMode?.setTextColor(if (enabled) android.graphics.Color.parseColor("#00E5FF") else android.graphics.Color.parseColor("#888888"))
+        }
+        refreshFpvAcroButtonUI()
+
+        btnFpvAcroMode?.setOnClickListener {
+            val newState = !com.dji.recreate2.flight.ConfinedSpaceFlightManager.isFpvAcroModeEnabled
+            com.dji.recreate2.flight.ConfinedSpaceFlightManager.setFpvAcroMode(newState)
+
+            val gimbalModeKey = KeyTools.createKey(dji.sdk.keyvalue.key.GimbalKey.KeyGimbalMode)
+            val mode = if (newState) dji.sdk.keyvalue.value.gimbal.GimbalMode.FPV else dji.sdk.keyvalue.value.gimbal.GimbalMode.YAW_FOLLOW
+            KeyManager.getInstance().setValue(gimbalModeKey, mode, null)
+
+            refreshFpvAcroButtonUI()
+            showToast(if (newState) "⚡ FPV Acro Mode: ENABLED (Gimbal Roll Lock Active)" else "⚡ FPV Acro Mode: DISABLED (Standard POS Mode)")
+        }
+
         // Mode 1: Capture drone camera feed only (no HUD) and upload to S3
         btnIsrMode1CaptureNow?.setOnClickListener {
             val ts = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format(java.util.Date())
