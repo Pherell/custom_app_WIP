@@ -5438,7 +5438,7 @@ class MainActivity : AppCompatActivity() {
         val dBtnStopRtmp = dialog.findViewById<android.widget.Button>(R.id.btnStopRtmp)
         val dEtRtmpUrl = dialog.findViewById<android.widget.EditText>(R.id.etRtmpUrl)
 
-        val DEFAULT_WHIP_URL = "http://streamer:Rahas!%402025@10.12.0.15:1984/api/whip?src=dji-sdk-view-asli"
+        val DEFAULT_WHIP_URL = "http://streamer:Rahas!%402025@10.12.0.15:1985/api/webrtc?src=dji-sdk-view-asli"
         val DEFAULT_RTSP_URL = "rtsp://streamer:Rahas!%402025@10.12.0.15:8554/dji-sdk-view-asli"
         val DEFAULT_RTMP_URL = "rtmp://10.12.0.15:1935/live/dji-sdk-view-asli"
 

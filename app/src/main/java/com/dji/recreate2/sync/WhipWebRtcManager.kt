@@ -98,7 +98,22 @@ object WhipWebRtcManager {
                 }
 
                 val finalUser = if (!extractedUser.isNullOrEmpty()) extractedUser else username
-                val finalPass = if (!extractedPass.isNullOrEmpty()) extractedPass else password
+                var finalPass = if (!extractedPass.isNullOrEmpty()) extractedPass else password
+
+                // Decode %40 back to @ symbol in password if percent encoded
+                if (!finalPass.isNullOrEmpty() && finalPass.contains("%40")) {
+                    finalPass = finalPass.replace("%40", "@")
+                }
+
+                // Auto-map port 1984 to active go2rtc port 1985 and fallback /api/whip to /api/webrtc
+                if (targetUrl.contains(":1984/")) {
+                    targetUrl = targetUrl.replace(":1984/", ":1985/")
+                }
+                if (targetUrl.contains("/api/whip")) {
+                    targetUrl = targetUrl.replace("/api/whip", "/api/webrtc")
+                }
+
+                Log.d(TAG, "WHIP Target URL: $targetUrl with User: $finalUser")
 
                 val requestBuilder = Request.Builder()
                     .url(targetUrl)

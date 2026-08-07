@@ -420,11 +420,11 @@
                     android:textColor="#FFFFFF"
                     android:background="@drawable/bg_telemetry_capsule"
                     android:paddingHorizontal="10dp"
-                    android:hint="http://streamer:Rahas!%402025@10.12.0.15:1984/api/whip?src=dji-sdk-view-asli"
+                    android:hint="http://streamer:Rahas!%402025@10.12.0.15:1985/api/webrtc?src=dji-sdk-view-asli"
                     android:textColorHint="#666666"
                     android:inputType="textUri"
                     android:textSize="11sp"
-                    android:text="http://streamer:Rahas!%402025@10.12.0.15:1984/api/whip?src=dji-sdk-view-asli"
+                    android:text="http://streamer:Rahas!%402025@10.12.0.15:1985/api/webrtc?src=dji-sdk-view-asli"
                     android:layout_marginBottom="8dp"/>
 
                 <LinearLayout
