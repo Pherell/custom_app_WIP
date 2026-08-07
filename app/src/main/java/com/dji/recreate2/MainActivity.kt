@@ -7515,10 +7515,33 @@ class MainActivity : AppCompatActivity() {
                          cleanUrl.startsWith("whip://", ignoreCase = true) ||
                          cleanUrl.contains("/whip", ignoreCase = true)
 
+            if (isWhip) {
+                showToast("⚡ Starting WHIP WebRTC Direct Push: $cleanUrl")
+                android.util.Log.i("KMZ_SysLog", "WHIP WebRTC Direct Push Command Received: $cleanUrl")
+
+                com.dji.recreate2.sync.WhipWebRtcManager.startWhipStream(
+                    context = this,
+                    whipUrl = cleanUrl,
+                    onSuccess = {
+                        runOnUiThread {
+                            showToast("✔ WHIP WebRTC Stream ACTIVE!")
+                            log("WHIP WebRTC Stream active to: $cleanUrl")
+                        }
+                    },
+                    onError = { err ->
+                        runOnUiThread {
+                            showToast("✗ WHIP Error: $err")
+                            log("WHIP Error: $err")
+                        }
+                    }
+                )
+            }
+
             val targetStreamUrl = if (isWhip) {
                 val streamName = cleanUrl.substringAfter("dst=", "").ifEmpty { cleanUrl.substringAfter("src=", "").ifEmpty { "dji-sdk-view-asli" } }
                 val host = if (cleanUrl.contains("rtc.blackeye.id")) "rtc.blackeye.id" else "10.12.0.15"
-                "rtmp://$host:1936/$streamName"
+                val auth = if (cleanUrl.contains("@")) cleanUrl.substringAfter("://").substringBefore("@") + "@" else "streamer:Rahas!%402025@"
+                "rtmp://$auth$host:1936/live/$streamName"
             } else {
                 cleanUrl
             }
