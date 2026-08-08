@@ -5726,7 +5726,9 @@ class MainActivity : AppCompatActivity() {
 
         val DEFAULT_WHIP_URL = "https://$streamHost/api/webrtc?dst=$streamName"
         val DEFAULT_RTSP_URL = "rtsp://$streamHost:8554/$streamName"
-        val DEFAULT_RTMP_URL = "rtmp://$streamHost:$RTMP_PUSH_PORT/$streamName"
+        // Same construction the WHIP->RTMP mapping uses, so the two buttons cannot push to
+        // different stream keys on the same server.
+        val DEFAULT_RTMP_URL = "rtmp://$streamHost:$RTMP_PUSH_PORT/${rtmpPathPrefix()}$streamName"
 
         dEtRtmpUrl?.setText(sharedPrefs.getString("rtmpUrl", DEFAULT_WHIP_URL))
 
@@ -7825,6 +7827,19 @@ class MainActivity : AppCompatActivity() {
     /** Port the go2rtc RTMP ingest listens on when a WHIP URL is mapped to an RTMP push. */
     private val RTMP_PUSH_PORT = 1936
 
+    /**
+     * Path segment placed before the stream name in a generated RTMP push URL.
+     *
+     * Empty by default, giving `rtmp://host:1936/<name>` — which is what go2rtc expects when
+     * `<name>` is a key in its `streams:` map. Set "rtmpPathPrefix" to "live" in
+     * TacticalHUDConfig if your ingest is behind a /live/ application (nginx-rtmp style).
+     * Stored without slashes; the trailing slash is added here.
+     */
+    private fun rtmpPathPrefix(): String {
+        val raw = sharedPrefs.getString("rtmpPathPrefix", "")?.trim()?.trim('/') ?: ""
+        return if (raw.isEmpty()) "" else "$raw/"
+    }
+
     private fun startRtmpStream(url: String) {
         val cleanUrl = url.trim()
         if (cleanUrl.isEmpty()) return
@@ -7868,7 +7883,12 @@ class MainActivity : AppCompatActivity() {
                 }
                 // STRIP AUTH for RTMP Push: go2rtc's RTMP server does not require URL auth by
                 // default, and the DJI encoder can fail parsing inline credentials.
-                "rtmp://$parsedHost:$RTMP_PUSH_PORT/live/$streamName"
+                //
+                // The path prefix is configurable because the WHIP button used to hardcode
+                // "live/" while the RTMP preset used a bare stream name - two buttons pushing
+                // to two different stream keys on the same server, so at most one of them could
+                // ever match the go2rtc `streams:` config. Both now derive from rtmpPathPrefix.
+                "rtmp://$parsedHost:$RTMP_PUSH_PORT/${rtmpPathPrefix()}$streamName"
             } else {
                 cleanUrl
             }
