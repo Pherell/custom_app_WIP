@@ -15,6 +15,12 @@ object KmzGenerator {
 
     private const val TAG = "KmzGenerator"
 
+    // Gimbal pitch range written into a mission file. The mission runs on the aircraft, so the
+    // file cannot use the live GimbalLimits values. These are safe for every supported airframe.
+    // Refer to com.dji.recreate2.gimbal.GimbalLimits for the live limits the app applies.
+    private const val GIMBAL_PITCH_MIN_DEG = -85.0
+    private const val GIMBAL_PITCH_MAX_DEG = 25.0
+
     /**
      * @param actionType comma-separated waypoint actions, matching MainActivity.TacticalWaypoint:
      *        FLY / PHOTO / START_RECORD / STOP_RECORD / LOCK_POI / UNLOCK_POI / SET_GIMBAL.
@@ -193,7 +199,26 @@ ${paramXml.prependIndent("                        ")}
 
         // 1. Generate Placemarks
         waypoints.forEachIndexed { index, wp ->
-            val headingBlock = if (wp.heading != null) {
+            // A waypoint that locks onto a POI uses towardPOI heading. The aircraft then keeps
+            // its nose on the target for the whole leg, so the lock is continuous.
+            //
+            // The previous version emitted only a reachPoint gimbal action. That aimed the
+            // gimbal one time on arrival and never aimed it again, so the target moved out of
+            // the image as the aircraft continued. towardPOI also removes the need for gimbal
+            // yaw, which has a small mechanical range on most airframes.
+            val poiForHeading = wp.poiTarget?.takeIf {
+                val a = wp.actionType.uppercase()
+                a.contains("LOCK_POI") || a.contains("PHOTO") || a.contains("START_RECORD")
+            }
+
+            val headingBlock = if (poiForHeading != null) {
+                """
+                  <wpml:waypointHeadingParam>
+                    <wpml:waypointHeadingMode>towardPOI</wpml:waypointHeadingMode>
+                    <wpml:waypointPoiPoint>${poiForHeading.latitude},${poiForHeading.longitude},${poiForHeading.altitude}</wpml:waypointPoiPoint>
+                  </wpml:waypointHeadingParam>
+                """.trimIndent()
+            } else if (wp.heading != null) {
                 """
                   <wpml:waypointHeadingParam>
                     <wpml:waypointHeadingMode>smoothTransition</wpml:waypointHeadingMode>
@@ -285,13 +310,20 @@ ${turnBlock.prependIndent("                  ")}
                             Math.toDegrees(Math.atan2(-wp.altitude, groundDist))
                         }
                         if (pitch != null) {
+                            // Yaw is enabled and commanded to 0. The aircraft nose already points
+                            // at the POI through towardPOI heading, so the correct gimbal trim is
+                            // zero. Setting it explicitly also clears a yaw offset that an earlier
+                            // action may have left behind.
+                            //
+                            // Pitch is limited to the range that every supported gimbal can reach.
+                            // An angle past the end stop makes the motors hold against the stop.
                             actionXml.append(buildAction(actionId++, "gimbalRotate", """
                                 <wpml:gimbalRotateMode>absoluteAngle</wpml:gimbalRotateMode>
                                 <wpml:gimbalPitchRotateEnable>1</wpml:gimbalPitchRotateEnable>
-                                <wpml:gimbalPitchRotateAngle>${String.format(java.util.Locale.US, "%.1f", pitch.coerceIn(-90.0, 30.0))}</wpml:gimbalPitchRotateAngle>
+                                <wpml:gimbalPitchRotateAngle>${String.format(java.util.Locale.US, "%.1f", pitch.coerceIn(GIMBAL_PITCH_MIN_DEG, GIMBAL_PITCH_MAX_DEG))}</wpml:gimbalPitchRotateAngle>
                                 <wpml:gimbalRollRotateEnable>0</wpml:gimbalRollRotateEnable>
                                 <wpml:gimbalRollRotateAngle>0</wpml:gimbalRollRotateAngle>
-                                <wpml:gimbalYawRotateEnable>0</wpml:gimbalYawRotateEnable>
+                                <wpml:gimbalYawRotateEnable>1</wpml:gimbalYawRotateEnable>
                                 <wpml:gimbalYawRotateAngle>0</wpml:gimbalYawRotateAngle>
                                 <wpml:payloadPositionIndex>0</wpml:payloadPositionIndex>
                             """.trimIndent()))

@@ -2554,7 +2554,7 @@ class MainActivity : AppCompatActivity() {
                                     runOnUiThread {
                                         val gimbalParam = dji.sdk.keyvalue.value.gimbal.GimbalAngleRotation()
                                         gimbalParam.mode = dji.sdk.keyvalue.value.gimbal.GimbalAngleRotationMode.ABSOLUTE_ANGLE
-                                        gimbalParam.pitch = currentWp.gimbalPitch!!
+                                        gimbalParam.pitch = com.dji.recreate2.gimbal.GimbalLimits.clampPitch(currentWp.gimbalPitch!!)
                                         gimbalParam.roll = 0.0
                                         gimbalParam.yaw = 0.0
                                         gimbalParam.duration = 1.0
@@ -2582,14 +2582,17 @@ class MainActivity : AppCompatActivity() {
                     val poiRelativeBearing = poiBearing - droneYaw
                     val poiNormalizedYaw = ((poiRelativeBearing % 360) + 540) % 360 - 180
                     val poiTargetPitch = Math.toDegrees(Math.atan2(-droneAlt, poiDist.toDouble()))
-                    
+
                     val currentTime = System.currentTimeMillis()
                     if (currentTime - lastGimbalUpdate > 250) {
                         val gimbalParam = dji.sdk.keyvalue.value.gimbal.GimbalAngleRotation()
                         gimbalParam.mode = dji.sdk.keyvalue.value.gimbal.GimbalAngleRotationMode.ABSOLUTE_ANGLE
-                        gimbalParam.pitch = poiTargetPitch
+                        // Clamp to the mechanical range. These two had no limit at all: at a short
+                        // horizontal distance the pitch goes to -90 and drives into the end stop.
+                        // The airframe already turns toward the POI, so the gimbal only trims.
+                        gimbalParam.pitch = com.dji.recreate2.gimbal.GimbalLimits.clampPitch(poiTargetPitch)
                         gimbalParam.roll = 0.0
-                        gimbalParam.yaw = poiNormalizedYaw
+                        gimbalParam.yaw = com.dji.recreate2.gimbal.GimbalLimits.clampYaw(poiNormalizedYaw)
                         gimbalParam.duration = 0.3
                         // C-01: SDK performAction must run on main thread
                         runOnUiThread {
@@ -2665,9 +2668,9 @@ class MainActivity : AppCompatActivity() {
 
                                 val gimbalParam = dji.sdk.keyvalue.value.gimbal.GimbalAngleRotation()
                                 gimbalParam.mode = dji.sdk.keyvalue.value.gimbal.GimbalAngleRotationMode.ABSOLUTE_ANGLE
-                                gimbalParam.pitch = targetPitch
+                                gimbalParam.pitch = com.dji.recreate2.gimbal.GimbalLimits.clampPitch(targetPitch)
                                 gimbalParam.roll = 0.0
-                                gimbalParam.yaw = poiGimbalYaw
+                                gimbalParam.yaw = com.dji.recreate2.gimbal.GimbalLimits.clampYaw(poiGimbalYaw)
                                 gimbalParam.duration = 1.0
                                 // C-01: SDK performAction must run on main thread
                                 runOnUiThread {
@@ -4618,6 +4621,11 @@ class MainActivity : AppCompatActivity() {
                             val rtkKey = KeyTools.createKey(RtkMobileStationKey.KeyRTKEnable)
                             rtkSupported = dji.v5.manager.KeyManager.getInstance().getValue(rtkKey) != null
                             log("Drone RTK Support detected: $rtkSupported")
+
+                            // Read the gimbal mechanical range for this airframe. Until this
+                            // succeeds, GimbalLimits uses conservative defaults.
+                            com.dji.recreate2.gimbal.GimbalLimits.refresh()
+                            log("Gimbal limits: ${com.dji.recreate2.gimbal.GimbalLimits.describe()}")
                         } catch (e: Exception) {
                             android.util.Log.e("MainActivity", "Failed to resolve drone Sn/Type on connection: ${e.message}")
                         }
@@ -4835,6 +4843,11 @@ class MainActivity : AppCompatActivity() {
             isTgpGeoLockActive = false
             tgpLockThread?.interrupt()
             tgpLockThread = null
+            tgpYawWarningShown = false
+            // Stop any airframe turn that the lock was driving.
+            if (canCommandAircraftYawForTgp()) {
+                commandAircraftYawRate(0.0)
+            }
             runOnUiThread {
                 findViewById<TextView>(R.id.btnTgpLock)?.setTextColor(android.graphics.Color.YELLOW)
             }
@@ -4957,6 +4970,36 @@ class MainActivity : AppCompatActivity() {
         showToast("LOCK: OBJECT UNLOCKED")
     }
 
+    /** Below this the gimbal can hold the target on its own; do not turn the airframe. */
+    private val TGP_AIRCRAFT_YAW_DEADBAND_DEG = 2.0
+    /** Proportional gain and ceiling for the airframe turn that assists the gimbal. */
+    private val TGP_AIRCRAFT_YAW_GAIN = 1.2
+    private val TGP_AIRCRAFT_YAW_MAX_DPS = 30.0
+    @Volatile private var tgpYawWarningShown = false
+
+    /**
+     * True when the app already owns the virtual stick channel, so an airframe turn will not take
+     * control from the pilot or fight a running mission.
+     */
+    private fun canCommandAircraftYawForTgp(): Boolean = joysticksVisible && !isMissionExecuting
+
+    /**
+     * Turns the airframe at [yawErrorDeg] proportional rate to help the gimbal reach a target that
+     * is outside its pan range. Sends zero to stop the turn.
+     */
+    private fun commandAircraftYawRate(yawErrorDeg: Double) {
+        val rate = (yawErrorDeg * TGP_AIRCRAFT_YAW_GAIN)
+            .coerceIn(-TGP_AIRCRAFT_YAW_MAX_DPS, TGP_AIRCRAFT_YAW_MAX_DPS)
+        try {
+            val vs = dji.v5.manager.aircraft.virtualstick.VirtualStickManager.getInstance()
+            val param = com.dji.recreate2.flight.ConfinedSpaceFlightManager.createVirtualStickParam()
+            applyVelocitySetpoint(param, 0.0, 0.0, 0.0, rate)
+            vs.sendVirtualStickAdvancedParam(param)
+        } catch (e: Exception) {
+            log("TGP aircraft yaw failed: ${e.message}")
+        }
+    }
+
     private var isTgpGeoLockActive = false
     private var tgpTargetLat = 0.0
     private var tgpTargetLon = 0.0
@@ -5023,13 +5066,23 @@ class MainActivity : AppCompatActivity() {
                         val targetBearingDeg = (Math.toDegrees(Math.atan2(dE, dN)) + 360.0) % 360.0
                         val targetPitchDeg = Math.toDegrees(Math.atan2(dU, distanceHorizontal))
 
-                        val desiredPitch = targetPitchDeg.coerceIn(-88.0, 25.0)
-                        val finalYaw = if (distanceHorizontal < 3.0) {
+                        // Clamp to the mechanical range. An angle past the end stop makes the
+                        // motors hold against the stop, which is what damages them.
+                        val desiredPitch = com.dji.recreate2.gimbal.GimbalLimits.clampPitch(targetPitchDeg)
+
+                        // Yaw the target relative to the nose, then split it between the gimbal
+                        // and the airframe.
+                        val relativeYawRaw = if (distanceHorizontal < 3.0) {
+                            // Near nadir the bearing is unstable. Hold the current yaw so the
+                            // gimbal does not flip through 180 degrees.
                             gimbalYaw
                         } else {
-                            val relativeYaw = (targetBearingDeg - droneYaw + 360.0) % 360.0
-                            if (relativeYaw > 180.0) relativeYaw - 360.0 else relativeYaw
+                            val r = (targetBearingDeg - droneYaw + 360.0) % 360.0
+                            if (r > 180.0) r - 360.0 else r
                         }
+
+                        val finalYaw = com.dji.recreate2.gimbal.GimbalLimits.clampYaw(relativeYawRaw)
+                        val yawShortfall = com.dji.recreate2.gimbal.GimbalLimits.aircraftYawShortfall(relativeYawRaw)
 
                         // Optimization: Throttled execution only when pitch or yaw shifts by > 0.1°
                         if (Math.abs(desiredPitch - lastSentPitch) > 0.1 || Math.abs(finalYaw - lastSentYaw) > 0.1) {
@@ -5046,6 +5099,25 @@ class MainActivity : AppCompatActivity() {
                             runOnUiThread {
                                 KeyManager.getInstance().performAction(gimbalAngleKey, rotation, null)
                             }
+                        }
+
+                        // The gimbal alone cannot hold the target once the bearing passes its pan
+                        // limit. Turn the airframe to make up the difference, but only when the
+                        // virtual stick channel is already ours - taking control authority away
+                        // from the pilot or from a running mission would be unsafe.
+                        if (Math.abs(yawShortfall) > TGP_AIRCRAFT_YAW_DEADBAND_DEG) {
+                            if (canCommandAircraftYawForTgp()) {
+                                commandAircraftYawRate(yawShortfall)
+                                tgpYawWarningShown = false
+                            } else if (!tgpYawWarningShown) {
+                                tgpYawWarningShown = true
+                                runOnUiThread {
+                                    showToast("TGP: target is ${Math.abs(yawShortfall).toInt()}° outside gimbal pan. Turn the aircraft.")
+                                }
+                                log("TGP yaw shortfall ${"%.1f".format(yawShortfall)}° and no virtual stick authority.")
+                            }
+                        } else if (canCommandAircraftYawForTgp()) {
+                            commandAircraftYawRate(0.0)
                         }
                     }
 
@@ -7234,8 +7306,9 @@ class MainActivity : AppCompatActivity() {
                         val duration = json.optDouble("duration", 2.0)
                         val rotation = dji.sdk.keyvalue.value.gimbal.GimbalAngleRotation()
                         rotation.mode = dji.sdk.keyvalue.value.gimbal.GimbalAngleRotationMode.ABSOLUTE_ANGLE
-                        rotation.pitch = pitch
-                        rotation.yaw = yaw
+                        // A C2 operator can send any angle. Clamp it to the mechanical range.
+                        rotation.pitch = com.dji.recreate2.gimbal.GimbalLimits.clampPitch(pitch)
+                        rotation.yaw = com.dji.recreate2.gimbal.GimbalLimits.clampYaw(yaw)
                         rotation.roll = 0.0
                         rotation.duration = duration
 
