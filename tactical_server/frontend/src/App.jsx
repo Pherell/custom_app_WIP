@@ -397,7 +397,7 @@ function App() {
     
     brokerList.forEach(url => {
       if (clientsRef.current[url]) {
-        clientsRef.current[url].publish(`dji-sdk/fleet/config`, JSON.stringify(configPayload), { qos: 1 });
+        clientsRef.current[url].publish(`avarell/fleet/config`, JSON.stringify(configPayload), { qos: 1 });
       }
     });
     alert(`Config synced to all brokers: RTH ${rthAlt}m, Obstacle: ${obstacleAction}`);
@@ -453,7 +453,7 @@ function App() {
       setSysLogs(prev => [logMsg, ...prev].slice(0, 50));
       
       if (client) {
-        client.publish(`dji-sdk/fleet/drone_sim_01/telemetry`, JSON.stringify(payload));
+        client.publish(`avarell/fleet/drone_sim_01/telemetry`, JSON.stringify(payload));
       } else {
         // Fallback: Just update local UI state if no MQTT broker is connected yet
         setFleet(prev => ({ ...prev, [payload.drone_id]: payload }));

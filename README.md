@@ -309,8 +309,9 @@ Read these limits before you use the application for an operational task:
 3. **The GCS link failsafe uses the broker connection.** The application answers a `PING` command,
    but the server does not send `PING`. Refer to `SERVER_API_DOCS.md`.
 4. **The application does not encrypt the stored settings.**
-5. **The web interface build output is old.** Build it again with `npm run build` to get the
-   corrected topic names.
+5. **The web interface uses the deprecated `avarell/` topic for two publications.** The
+   configuration still reaches the aircraft through the backend. The backend does not receive the
+   simulated aircraft. Refer to `SERVER_API_DOCS.md` Section 0.1.
 
 ---
 

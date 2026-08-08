@@ -14,27 +14,37 @@ gives the MQTT topics, the data schemas and the commands.
 Read this section before you write server code. The items below are not correct in the current
 build.
 
-### 0.1 The topic namespace is now the same in all components
+### 0.1 The `avarell/` topic namespace is deprecated
 
-The `avarell/` topic namespace is deprecated. Do not use it. All components use `dji-sdk/fleet/`.
+Do not use the `avarell/` namespace in new code. Use `dji-sdk/fleet/`.
 
-The correction of 2026-08-09 changed these positions:
+The correction of 2026-08-09 changed the Android application, the backend and the KMZ hub:
 
 | File | Position | Old topic | New topic |
 |---|---|---|---|
 | `backend/server.js` | 111 | `avarell/fleet/config` | `dji-sdk/fleet/config` |
 | `backend/server.js` | 166 | `avarell/fleet/config` | `dji-sdk/fleet/config` |
-| `frontend/src/App.jsx` | 400 | `avarell/fleet/config` | `dji-sdk/fleet/config` |
-| `frontend/src/App.jsx` | 456 | `avarell/fleet/drone_sim_01/telemetry` | `dji-sdk/fleet/drone_sim_01/telemetry` |
 | `kmz_hub/kmz_hub.py` | 77 | `avarell/fleet/+/mission` | `dji-sdk/fleet/+/mission` |
 | `kmz_hub/kmz_hub.py` | 147, 166, 185 | `avarell/fleet/broadcast/command` | `dji-sdk/fleet/broadcast/command` |
 
-Before this correction the configuration push did not reach the aircraft. The simulated aircraft did
-not show on the server. The KMZ hub did not receive mission events and its commands did not reach
-the aircraft.
+Before this correction, the configuration push did not reach the aircraft. The KMZ hub did not
+receive mission events and its commands did not reach the aircraft.
 
-**NOTE: The build output `frontend/dist/` still has the old topic. Build the web interface again
-with `npm run build` before you deploy it.**
+#### The web interface keeps the old namespace
+
+The owner of the project holds the web interface (`frontend/`) outside this work. Two positions in
+`frontend/src/App.jsx` still use the `avarell/` namespace:
+
+| Position | Topic | Effect |
+|---|---|---|
+| 400 | `avarell/fleet/config` | No component subscribes. The publication has no effect. |
+| 456 | `avarell/fleet/drone_sim_01/telemetry` | The backend does not receive the simulated aircraft. |
+
+The configuration push still operates. `App.jsx` sends the same data two times: one time to the
+broker on the old topic, and one time to the backend with Socket.io (`push_config`). The backend
+then sends it to `dji-sdk/fleet/config`. The aircraft receives the data on the second path.
+
+The simulated aircraft does not reach the backend or the database.
 
 **NOTE: `MQTT_USERNAME=avarell` in the `.env` files is a broker user name. It is not a topic. Do not
 change it.**

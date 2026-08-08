@@ -142,20 +142,26 @@ Audit 1 also gave a status of RESOLVED to the MQTT topic defect. The correction 
 The telemetry topic and the command topic were correct. Four other positions kept the deprecated
 `avarell/` namespace.
 
-The correction of 2026-08-09 completes this work. The `avarell/` namespace is deprecated. No
-component uses it now.
+The correction of 2026-08-09 changed the backend and the KMZ hub. The `avarell/` namespace is
+deprecated.
 
 | Topic | Application | Server | Web interface | KMZ hub |
 |---|---|---|---|---|
 | Telemetry | `dji-sdk/fleet/` | `dji-sdk/fleet/` | `dji-sdk/fleet/` | — |
 | Command | `dji-sdk/fleet/` | `dji-sdk/fleet/` | `dji-sdk/fleet/` | `dji-sdk/fleet/` |
-| Config | `dji-sdk/fleet/` | `dji-sdk/fleet/` | `dji-sdk/fleet/` | — |
+| Config | `dji-sdk/fleet/` | `dji-sdk/fleet/` | **`avarell/fleet/`** | — |
 | Mission | `dji-sdk/fleet/` | — | `dji-sdk/fleet/` | `dji-sdk/fleet/` |
+| Simulator | — | `dji-sdk/fleet/` | **`avarell/fleet/`** | — |
 
-Before the correction, the configuration push did not reach the aircraft, the simulated aircraft did
-not reach the server, and the KMZ hub could not send a command or receive a mission event.
+Before the correction, the configuration push did not reach the aircraft, and the KMZ hub could not
+send a command or receive a mission event. Both faults are corrected.
 
-**NOTE: The web interface build output `frontend/dist/` still has the old topic. Build it again.**
+The owner of the project holds the web interface (`frontend/`) outside this work. The two positions
+in bold keep the old namespace. The effects are:
+
+- The direct configuration publication has no effect. No component subscribes to that topic. The
+  configuration still reaches the aircraft on the Socket.io path through the backend.
+- The backend does not receive the simulated aircraft.
 
 **NOTE: `MQTT_USERNAME=avarell` in the `.env` files is a broker user name. It is not a topic.**
 
