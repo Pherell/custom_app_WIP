@@ -29,6 +29,8 @@ import java.util.concurrent.atomic.AtomicBoolean
  */
 object FpvStreamRecorder {
     private const val TAG = "FpvStreamRecorder"
+    /** Upper bound on any encoder drain, so stopRecording() can never hang the caller. */
+    private const val DRAIN_TIMEOUT_MS = 3000L
     private val isRecording = AtomicBoolean(false)
 
     private var mediaCodec: MediaCodec? = null
@@ -132,7 +134,16 @@ object FpvStreamRecorder {
 
             val recordRunnable = object : Runnable {
                 override fun run() {
-                    if (!isRecording.get() || surfaceView.width <= 0) return
+                    if (!isRecording.get()) return
+                    // Skip-and-reschedule, never return. A transient layout pass (rotation,
+                    // mode switch, PiP resize - all of which MainActivity.updateModeUI does to
+                    // fpvSurface) can momentarily report width 0. Returning here used to stop
+                    // capture permanently while isRecording stayed true, so stopRecording()
+                    // later reported success on a truncated file.
+                    if (surfaceView.width <= 0 || surfaceView.height <= 0) {
+                        recordHandler?.postDelayed(this, frameDelayMs)
+                        return
+                    }
 
                     val now = System.currentTimeMillis()
                     var currentTelemetry: TelemetrySample? = null
@@ -309,11 +320,25 @@ object FpvStreamRecorder {
 
         var srtFile: File? = null
         try {
+            // Drain the encoder on the recorder thread BEFORE tearing it down, so the
+            // (bounded) drain never runs on the caller - which is the main thread, since
+            // toggleRecord() reaches here from an SDK callback marshalled to UI.
+            val recorderHandler = recordHandler
+            if (recorderHandler != null && recordThread?.isAlive == true) {
+                val drainLatch = java.util.concurrent.CountDownLatch(1)
+                recorderHandler.removeCallbacksAndMessages(null)
+                recorderHandler.post {
+                    try { drainEncoder(true) } catch (_: Exception) {} finally { drainLatch.countDown() }
+                }
+                // Bounded wait: if the recorder thread is wedged we still tear down.
+                drainLatch.await(DRAIN_TIMEOUT_MS, java.util.concurrent.TimeUnit.MILLISECONDS)
+            } else {
+                drainEncoder(true)
+            }
+
             recordHandler?.removeCallbacksAndMessages(null)
             recordThread?.quitSafely()
             recordThread?.join(1000)
-
-            drainEncoder(true)
 
             try { mediaCodec?.stop() } catch (_: Exception) {}
             try { mediaCodec?.release() } catch (_: Exception) {}
@@ -324,8 +349,10 @@ object FpvStreamRecorder {
 
             if (isMuxerStarted) {
                 try { mediaMuxer?.stop() } catch (_: Exception) {}
-                try { mediaMuxer?.release() } catch (_: Exception) {}
             }
+            // release() unconditionally - when the muxer was never started the old code
+            // dropped the reference without releasing, leaking the native muxer.
+            try { mediaMuxer?.release() } catch (_: Exception) {}
             mediaMuxer = null
             isMuxerStarted = false
 
@@ -389,17 +416,30 @@ object FpvStreamRecorder {
         val codec = mediaCodec ?: return
         val muxer = mediaMuxer ?: return
 
+        var signalled = true
         if (endOfStream) {
             try {
                 codec.signalEndOfInputStream()
-            } catch (_: Exception) {}
+            } catch (e: Exception) {
+                // If EOS was never signalled the codec will never emit BUFFER_FLAG_END_OF_STREAM,
+                // so the drain below must not wait for it.
+                signalled = false
+                Log.w(TAG, "signalEndOfInputStream failed; draining without EOS", e)
+            }
         }
 
+        // Hard deadline. The old loop only broke on INFO_TRY_AGAIN_LATER when endOfStream was
+        // false, so a missing EOS flag meant `while (true)` spun forever and froze the caller.
+        val deadline = System.currentTimeMillis() + DRAIN_TIMEOUT_MS
         val bufferInfo = MediaCodec.BufferInfo()
         while (true) {
+            if (System.currentTimeMillis() > deadline) {
+                Log.w(TAG, "drainEncoder timed out after ${DRAIN_TIMEOUT_MS}ms; aborting drain")
+                break
+            }
             val outputBufferIndex = codec.dequeueOutputBuffer(bufferInfo, 10000L)
             if (outputBufferIndex == MediaCodec.INFO_TRY_AGAIN_LATER) {
-                if (!endOfStream) break
+                if (!endOfStream || !signalled) break
             } else if (outputBufferIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
                 if (!isMuxerStarted) {
                     val newFormat = codec.outputFormat

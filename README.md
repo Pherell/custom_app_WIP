@@ -22,7 +22,8 @@ A dark-mode, military-style FPV overlay designed for maximum situational awarene
 Built for air-gapped or private enterprise networks, the app acts as a local bridge between the drone and a secure open-source backend.
 *   **Live Telemetry Broadcast:** Broadcasts high-frequency GPS, battery, and kinematics data via Eclipse Paho MQTT using the `dji-sdk/fleet/` namespace.
 *   **Remote C2:** Subscribes to command topics, allowing remote commanders to inject waypoints, trigger Return-to-Home (RTH), set zoom/focus, or execute missions remotely.
-*   **Native WebRTC WHIP & Multi-Protocol FPV Streaming:** Supports sub-50ms ultra-low latency WebRTC WHIP direct push (`NativeWebRtcStreamManager.kt`), RTSP UDP low-latency streaming (`rtsp://`), and RTMP (`StreamQuality.HD` @ 720p 30 FPS, `LiveVideoBitrateMode.AUTO`), eliminating frame drops, publisher collisions, and stream lag.
+*   **Multi-Protocol FPV Streaming:** Hardware-encoded RTMP push (`StreamQuality.HD` @ 720p, `LiveVideoBitrateMode.AUTO`) and RTSP server mode (`rtsp://`) via the DJI `LiveStreamManager`. A WHIP/HTTP URL is mapped onto an RTMP push against the same host.
+    > **Note:** native WebRTC WHIP is *not* implemented. The former `NativeWebRtcStreamManager` never transmitted media (empty frame listener, hard-coded placeholder DTLS fingerprint) and has been removed. Real WHIP support requires linking libwebrtc.
 *   **ISR Mode 1 (High-Res S3/Local & Raw FPV Stream):** Takes high-resolution photos with automatic GPS/altitude/yaw/pitch EXIF metadata injection. Records clean raw FPV stream video directly on tablet with optional toggleable Target Reticle Box and Compass Tape overlays, producing companion `.srt` 1-second telemetry subtitle files.
 *   **ISR Mode 2 (Post-Flight & Landed SD Auto Sync):** Automatically syncs all mission media from drone camera storage to S3 and device local storage upon touchdown/landing detection or on demand via `[ 🔄 SYNC NOW ]`.
 *   **Local Storage Fallback (`saveToLocalStorage`):** Preserves all Mode 1 captures and Mode 2 synced files directly in designated tablet local storage (`Pictures/ISR_Local_Storage` or custom SAF folder) even if Ceph S3 server is offline or air-gapped.
@@ -35,7 +36,8 @@ Built for air-gapped or private enterprise networks, the app acts as a local bri
 *   **SDK:** DJI Mobile SDK (MSDK) v5
 *   **Mapping:** OSMDroid (OpenStreetMap)
 *   **Networking:** Eclipse Paho MQTT v3
-*   **Minimum OS:** Android 10 (API 29)
+*   **Minimum OS:** Android 7.0 (API 24) — see `minSdk` in `app/build.gradle.kts`
+*   **Target OS:** Android 15 (API 35)
 
 ---
 
@@ -44,7 +46,8 @@ Built for air-gapped or private enterprise networks, the app acts as a local bri
 The app communicates with an external MQTT broker. The server address can be configured manually via the **CFG Tab** in the Advanced System Menu (Double-click the Drone Logo to access).
 
 ### 1. Telemetry Broadcast
-The app publishes live data (approx 10Hz) to the server.
+The app publishes live data at approx 10Hz to the server (see `startTelemetryBroadcast()`).
+Numeric fields are emitted as `null` rather than `NaN` before the first GPS fix.
 *   **Topic:** `dji-sdk/fleet/{drone_id}/telemetry`
 *   **Payload (JSON):**
 ```json

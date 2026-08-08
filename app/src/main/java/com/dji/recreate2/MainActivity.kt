@@ -199,7 +199,8 @@ class MainActivity : AppCompatActivity() {
     private var rcBattery = 0
     private var droneSignal = 0
     @Volatile private var isFlying = false
-    @Volatile private var isMappingMissionRunning = false
+    // (isMappingMissionRunning removed - it was never assigned; triggerLinkLossFailsafe now
+    // keys off isMissionExecuting instead.)
     @Volatile private var droneSatellites = 0
     @Volatile private var upLinkQuality = 0
     @Volatile private var downLinkQuality = 0
@@ -209,9 +210,13 @@ class MainActivity : AppCompatActivity() {
     private var heartbeatTimer: java.util.Timer? = null
     private var kmzExecuteStateListener: dji.v5.manager.aircraft.waypoint3.WaypointMissionExecuteStateListener? = null
     private var kmzWaylineExecutingInfoListener: dji.v5.manager.aircraft.waypoint3.WaylineExecutingInfoListener? = null
+    // Last time the C2 (MQTT broker) link was observed healthy. Refreshed by the failsafe
+    // monitor while connected, and by any inbound C2 command.
     @Volatile private var lastGcsHeartbeatTime = System.currentTimeMillis()
     private val LINK_LOSS_TIMEOUT_MS = 15000L // 15 seconds
     @Volatile private var isLinkLossFailsafeTriggered = false
+    // Guards against a failsafe RTH when C2 was never configured/connected in the first place.
+    @Volatile private var hasEverConnectedToGcs = false
     @Volatile private var failsafeThread: Thread? = null
     @Volatile private var gimbalRoll: Double = 0.0
     
@@ -254,8 +259,22 @@ class MainActivity : AppCompatActivity() {
     enum class MappingMode { PROFESSIONAL, QUICK }
     private var activeMappingMode = MappingMode.PROFESSIONAL
     
-    private var missionAltitude = 50.0
-    private var missionSpeed = 3.0
+    // (missionAltitude / missionSpeed removed - they were only ever written by the unused
+    // showAltitudeSpeedDialog(). Per-waypoint altitude and speed come from TacticalWaypoint.)
+
+    // Virtual Stick advanced-mode limits. createVirtualStickParam() selects VELOCITY for
+    // roll/pitch and vertical and ANGULAR_VELOCITY for yaw, so these are m/s and deg/s —
+    // NOT RC stick units (-660..660).
+    private val MAX_MISSION_SPEED_MPS = 12.0 // matches the ceiling enforced by checkMissionSafety()
+    private val MAX_CLIMB_RATE_MPS = 3.0
+    private val MAX_YAW_RATE_DPS = 45.0
+
+    // Non-blocking waypoint camera-action state machine (see startVirtualStickLoop).
+    private val GIMBAL_SETTLE_MS = 3000L
+    private val PHOTO_CAPTURE_MS = 1500L
+    private val PHOTO_STAGE_IDLE = 0
+    private val PHOTO_STAGE_SETTLING = 1
+    private val PHOTO_STAGE_CAPTURING = 2
     
     private val shapePoints = mutableListOf<GeoPoint>()
     private var shapePolygon: org.osmdroid.views.overlay.Polygon? = null
@@ -300,6 +319,13 @@ class MainActivity : AppCompatActivity() {
         // Load persistent settings
         sharedPrefs = getSharedPreferences("TacticalHUDConfig", Context.MODE_PRIVATE)
         loadConfig()
+
+        // These two were never called, so their persisted state (GPS-denied mode, confined
+        // space mode, brake distance) was silently discarded on every launch while the
+        // settings dialog and telemetry reported in-memory defaults. isGpsDeniedModeEnabled
+        // gates the GPS pre-flight check, so a stale value is safety-relevant.
+        com.dji.recreate2.flight.ConfinedSpaceFlightManager.init(this)
+        com.dji.recreate2.sync.ISRModeManager.init(this)
         
         // Initialize Map
         org.osmdroid.config.Configuration.getInstance().userAgentValue = applicationContext.packageName
@@ -320,6 +346,7 @@ class MainActivity : AppCompatActivity() {
             if (connected) {
                 lastGcsHeartbeatTime = System.currentTimeMillis()
                 isLinkLossFailsafeTriggered = false
+                hasEverConnectedToGcs = true
             }
             runOnUiThread {
                 if (connected) {
@@ -334,10 +361,15 @@ class MainActivity : AppCompatActivity() {
             }
         }
         mqttService.onCommandReceived = { json ->
+            // This callback arrives on MqttService's executor thread. handleMqttCommand
+            // iterates mapView.overlays (via checkMissionSafety) and issues MSDK
+            // performAction/setValue calls, both of which require the main thread — running
+            // it off-main risked ConcurrentModificationException and dropped SDK actions.
+            // Branches that do real I/O (UPLOAD_KMZ, DOWNLOAD_KMZ) background themselves.
             runOnUiThread {
                 android.widget.Toast.makeText(this@MainActivity, "MQTT COMMAND RECEIVED: $json", android.widget.Toast.LENGTH_LONG).show()
+                handleMqttCommand(json)
             }
-            handleMqttCommand(json)
         }
         mqttService.onErrorOccurred = { errorMsg ->
             runOnUiThread {
@@ -827,29 +859,9 @@ class MainActivity : AppCompatActivity() {
             }
         }
         
-        fun showAltitudeSpeedDialog() {
-            val dialogView = layoutInflater.inflate(R.layout.dialog_waypoint, null)
-            val dialog = android.app.AlertDialog.Builder(this).setView(dialogView).create()
-            dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
-            
-            val tvTitle = dialogView.findViewById<TextView>(R.id.tvWpTitle)
-            val etAlt = dialogView.findViewById<android.widget.EditText>(R.id.etWpAltitude)
-            val etSpeed = dialogView.findViewById<android.widget.EditText>(R.id.etWpSpeed)
-            val btnSave = dialogView.findViewById<TextView>(R.id.btnWpSave)
-            dialogView.findViewById<View>(R.id.btnWpDelete).visibility = View.GONE
-            
-            tvTitle.text = "> MISSION_PARAMS"
-            etAlt.setText(missionAltitude.toString())
-            etSpeed.setText(missionSpeed.toString())
-            
-            btnSave.setOnClickListener {
-                missionAltitude = etAlt.text.toString().toDoubleOrNull() ?: 50.0
-                missionSpeed = etSpeed.text.toString().toDoubleOrNull() ?: 3.0
-                showToast("Params Saved: ${missionAltitude}m @ ${missionSpeed}m/s")
-                dialog.dismiss()
-            }
-            dialog.show()
-        }
+        // NOTE: showAltitudeSpeedDialog() was removed here - it was declared and never called,
+        // which is why missionAltitude/missionSpeed were write-only and never reached any
+        // waypoint. Per-waypoint altitude/speed is set through showWaypointActionDialog().
 
         var droneClickCount = 0
         val droneHandler = android.os.Handler(android.os.Looper.getMainLooper())
@@ -1167,9 +1179,17 @@ class MainActivity : AppCompatActivity() {
         
         findViewById<android.widget.Button>(R.id.btnClearKmz).setOnClickListener {
             runOnUiThread {
-                // Isolated KMZ Clear: remove imported KMZ polylines and KMZ markers only
+                // Isolated KMZ Clear: remove imported KMZ polylines and KMZ markers only.
+                // headingLine, shapePolyline and the orbit circles must be excluded too - the
+                // old predicate stripped them from the map while their fields kept dangling
+                // references, so the heading line never came back.
                 val kmzOverlays = mapView.overlays.filter { overlay ->
-                    (overlay is org.osmdroid.views.overlay.Polyline && overlay != flightPathPolyline && overlay != previewGridPolyline) ||
+                    (overlay is org.osmdroid.views.overlay.Polyline &&
+                        overlay != flightPathPolyline &&
+                        overlay != previewGridPolyline &&
+                        overlay != headingLine &&
+                        overlay != shapePolyline &&
+                        overlay !in orbitCircleOverlays) ||
                     (overlay is org.osmdroid.views.overlay.Marker && (overlay.title?.contains("KMZ", ignoreCase = true) == true || overlay.title?.contains("Wayline", ignoreCase = true) == true))
                 }
                 mapView.overlays.removeAll(kmzOverlays)
@@ -1312,7 +1332,8 @@ class MainActivity : AppCompatActivity() {
                 showToast("LOCK: OBJECT FOLLOW ACTIVE (FOL)")
             } else {
                 objectTrackingOverlay?.lockTargetNormalized(0.5f, 0.5f, 0.2f, 0.2f)
-                showToast("LOCK: OBJECT FOLLOW ACTIVATED (FOL)")
+                // startOpticalObjectTracking() reports the real outcome; it is a visual
+                // designation only while ENABLE_OPTICAL_OBJECT_TRACKING is false.
             }
         }
         findViewById<TextView>(R.id.btnTgpLock)?.setOnClickListener {
@@ -1323,7 +1344,8 @@ class MainActivity : AppCompatActivity() {
             val tLon = if (isTgpGeoLockActive) tgpTargetLon else droneLon
             val tAlt = if (isTgpGeoLockActive) tgpTargetAlt else droneAlt
 
-            if (tLat == 0.0 && tLon == 0.0) {
+            // isNaN, not == 0.0 - see toggleTargetingPodLock.
+            if (tLat.isNaN() || tLon.isNaN() || (tLat == 0.0 && tLon == 0.0)) {
                 showToast("⚠️ Cannot tag: Waiting for GPS fix...")
             } else {
                 val item = GpsTaggingManager.addTag(
@@ -1389,6 +1411,50 @@ class MainActivity : AppCompatActivity() {
         }
         
         updateModeUI()
+    }
+
+    /**
+     * Mirrors the working waypoint list into the active route.
+     *
+     * `tacticalWaypoints` IS the active route's contents; nothing previously wrote into
+     * WaypointRoute.waypoints at all, so every route rendered "(0 WPs)", the visibility
+     * checkboxes did nothing and CHAIN EXECUTE always reported "No waypoints to execute".
+     * Call this after any mutation of tacticalWaypoints.
+     */
+    private fun syncActiveRoute() {
+        val active = com.dji.recreate2.sync.WaypointRouteManager.getActiveRoute()
+        active.waypoints.clear()
+        active.waypoints.addAll(tacticalWaypoints)
+    }
+
+    /**
+     * Replaces the on-map waypoint markers with [wps] and makes them the working list.
+     * Used when switching the active route.
+     */
+    private fun loadWaypointsIntoMap(wps: List<TacticalWaypoint>) {
+        tacticalWaypoints.forEach { wp ->
+            wp.osmdroidMarker?.let { mapView.overlays.remove(it) }
+        }
+        tacticalWaypoints.clear()
+
+        for (wp in wps) {
+            tacticalWaypoints.add(wp)
+            val marker = org.osmdroid.views.overlay.Marker(mapView)
+            marker.position = wp.geoPoint
+            marker.icon = androidx.core.content.ContextCompat.getDrawable(this, R.drawable.ic_waypoint_dot)
+            marker.setAnchor(org.osmdroid.views.overlay.Marker.ANCHOR_CENTER, org.osmdroid.views.overlay.Marker.ANCHOR_CENTER)
+            val methodSuffix = if (wp.movementMethod != "linear") " (${wp.movementMethod.uppercase()})" else ""
+            val actionSuffix = if (wp.actionType != "FLY") " [${wp.actionType}]" else ""
+            marker.title = "${wp.name}$methodSuffix$actionSuffix"
+            marker.setOnMarkerClickListener { m, _ ->
+                showWaypointActionDialog(wp, m as org.osmdroid.views.overlay.Marker)
+                true
+            }
+            wp.osmdroidMarker = marker
+            mapView.overlays.add(marker)
+        }
+        updateFlightPathLine()
+        mapView.invalidate()
     }
 
     private fun addWaypointMarker(p: GeoPoint) {
@@ -1532,6 +1598,11 @@ class MainActivity : AppCompatActivity() {
                     selectedWaypointForPOI = wp
                     isSettingPOI = true
                     currentMapInteraction = MapInteractionType.POI
+                    // Edit mode must be on, otherwise the map tap handler returns early on
+                    // !isMapEditMode before it ever reaches the isSettingPOI branch, and this
+                    // prompt could never be satisfied.
+                    isMapEditMode = true
+                    currentControlMode = ControlMode.MAP
                     showToast("TAP MAP TO SELECT TARGET POI")
                 }
             } else {
@@ -1721,8 +1792,14 @@ class MainActivity : AppCompatActivity() {
                     setTypeface(null, android.graphics.Typeface.BOLD)
                     layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
                     setOnClickListener {
-                        com.dji.recreate2.sync.WaypointRouteManager.setActiveRoute(route.id)
-                        showToast("Active Route: ${route.name}")
+                        // Persist the current route's edits before switching away, then load
+                        // the selected route's waypoints onto the map.
+                        syncActiveRoute()
+                        val target = com.dji.recreate2.sync.WaypointRouteManager.setActiveRoute(route.id)
+                        if (target != null) {
+                            loadWaypointsIntoMap(target.waypoints.toList())
+                        }
+                        showToast("Active Route: ${route.name} (${route.waypoints.size} WPs)")
                         refreshRouteList()
                     }
                 }
@@ -1735,8 +1812,10 @@ class MainActivity : AppCompatActivity() {
                     setPadding(12, 6, 12, 6)
                     setOnClickListener {
                         com.dji.recreate2.sync.WaypointRouteManager.deleteRoute(route.id)
-                        updateFlightPathLine()
-                        mapView.invalidate()
+                        // Whatever route is active now owns the map.
+                        loadWaypointsIntoMap(
+                            com.dji.recreate2.sync.WaypointRouteManager.getActiveRoute().waypoints.toList()
+                        )
                         refreshRouteList()
                         showToast("Deleted ${route.name}")
                     }
@@ -1752,18 +1831,26 @@ class MainActivity : AppCompatActivity() {
         refreshRouteList()
 
         btnCreateNewRoute?.setOnClickListener {
+            // Save the current route before the new one becomes active, or its edits are lost.
+            syncActiveRoute()
             val newRoute = com.dji.recreate2.sync.WaypointRouteManager.createNewRoute()
+            loadWaypointsIntoMap(emptyList())
             showToast("Created ${newRoute.name}")
             refreshRouteList()
         }
 
         btnChainExecuteRoutes?.setOnClickListener {
+            syncActiveRoute()
             val chainedWps = com.dji.recreate2.sync.WaypointRouteManager.getChainedExecutionWaypoints()
             if (chainedWps.isEmpty()) {
                 showToast("No waypoints to execute.")
                 return@setOnClickListener
             }
+            // Load the merged set of visible routes onto the map so the mission actually flies
+            // the chain, rather than whatever happened to be in the working list.
+            loadWaypointsIntoMap(chainedWps)
             dialog.dismiss()
+            showToast("Chaining ${chainedWps.size} waypoints from visible routes...")
             executeTacticalMission()
         }
 
@@ -2288,13 +2375,24 @@ class MainActivity : AppCompatActivity() {
         }
         // -------------------------
         
-        val kmzWaypoints = executionWaypoints.map { 
-            KmzGenerator.KmzWaypoint(it.geoPoint, it.altitude, it.speed, it.heading, it.dwellTime, it.movementMethod)
+        // actionType/poiTarget/gimbalPitch are carried through so waypoint camera and gimbal
+        // actions survive onto the KMZ path; they used to be dropped here entirely.
+        val kmzWaypoints = executionWaypoints.map {
+            KmzGenerator.KmzWaypoint(
+                it.geoPoint, it.altitude, it.speed, it.heading, it.dwellTime, it.movementMethod,
+                actionType = it.actionType,
+                poiTarget = it.poiTarget,
+                gimbalPitch = it.gimbalPitch
+            )
         }
         val spd = executionWaypoints.firstOrNull()?.speed ?: 5.0
         
         showToast("Generating Native KMZ Mission...")
-        val kmzFile = KmzGenerator.generateMappingKmz(this, kmzWaypoints, spd, signalLossAction)
+        // Route-wide 1s interval photo only makes sense for a survey grid. Every waypoint in a
+        // committed grid carries the SET_GIMBAL,PHOTO action stamped by previewGridMission().
+        val isSurveyRun = executionWaypoints.isNotEmpty() &&
+                executionWaypoints.all { it.actionType.contains("PHOTO", ignoreCase = true) }
+        val kmzFile = KmzGenerator.generateMappingKmz(this, kmzWaypoints, spd, signalLossAction, intervalPhoto = isSurveyRun)
         if (kmzFile != null) {
             executeNativeKMZ(kmzFile.absolutePath, autoStart = true)
             return
@@ -2325,6 +2423,40 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * Writes velocity setpoints into [param] for the Virtual Stick *advanced* channel.
+     *
+     * ConfinedSpaceFlightManager.createVirtualStickParam() configures VELOCITY roll/pitch,
+     * VELOCITY vertical and ANGULAR_VELOCITY yaw, which means the aircraft is driven by
+     * these four fields — the VirtualStickManager.leftStick/rightStick RC values are ignored
+     * in advanced mode. Writing sticks while sending an all-zero param (the previous
+     * behaviour) commanded a full stop on every iteration.
+     *
+     * @param groundBearingDeg compass bearing (0..360, true North) to translate along
+     * @param horizontalSpeed  ground speed in m/s
+     * @param verticalSpeed    climb rate in m/s (positive = up)
+     * @param yawRateDegPerSec yaw rate in deg/s (positive = clockwise)
+     */
+    private fun applyVelocitySetpoint(
+        param: dji.sdk.keyvalue.value.flightcontroller.VirtualStickFlightControlParam,
+        groundBearingDeg: Double,
+        horizontalSpeed: Double,
+        verticalSpeed: Double,
+        yawRateDegPerSec: Double
+    ) {
+        val axisRad = if (param.rollPitchCoordinateSystem == FlightCoordinateSystem.BODY) {
+            // BODY frame: pitch = forward (nose) axis, roll = right axis.
+            Math.toRadians(((groundBearingDeg - droneYaw) % 360 + 540) % 360 - 180)
+        } else {
+            // GROUND frame: pitch = North axis, roll = East axis.
+            Math.toRadians(groundBearingDeg)
+        }
+        param.pitch = horizontalSpeed * Math.cos(axisRad)
+        param.roll = horizontalSpeed * Math.sin(axisRad)
+        param.verticalThrottle = verticalSpeed
+        param.yaw = yawRateDegPerSec
+    }
+
     private fun startVirtualStickLoop(executionList: List<TacticalWaypoint>) {
         showToast("Executing Tactical Mission via Virtual Stick Engine...")
         log("Executing ${executionList.size} waypoints")
@@ -2344,6 +2476,8 @@ class MainActivity : AppCompatActivity() {
                     var cameraLockActive = false
                     var lastGimbalUpdate = 0L
                     var gpsLossCounter = 0
+                    var photoActionStage = PHOTO_STAGE_IDLE
+                    var photoActionDeadlineMs = 0L
             
                     val wps = java.util.concurrent.CopyOnWriteArrayList<TacticalWaypoint>(executionList)
                     
@@ -2462,104 +2596,112 @@ class MainActivity : AppCompatActivity() {
                 }
                 val altDiff = currentWp.altitude - droneAlt
                 
+                // Determine which way the drone's nose (Yaw) should point
+                val targetYawBearing = if (cameraLockActive && activePoiTarget != null) {
+                    val poiRes = FloatArray(3)
+                    android.location.Location.distanceBetween(droneLat, droneLon, activePoiTarget!!.latitude, activePoiTarget!!.longitude, poiRes)
+                    poiRes[1].toDouble() // Face the POI
+                } else {
+                    bearing.toDouble() // Face the Waypoint
+                }
+
+                val relativeYawError = targetYawBearing - droneYaw
+                val normalizedYaw = ((relativeYawError % 360) + 540) % 360 - 180
+
+                // Proportional yaw rate, clamped so the aircraft does not spin violently.
+                val yawRate = (normalizedYaw * 1.5).coerceIn(-MAX_YAW_RATE_DPS, MAX_YAW_RATE_DPS)
+
                 if (Math.abs(altDiff) > 1.0) {
-                    // Altitude adjustment phase
-                    vs.setVirtualStickAdvancedModeEnabled(true)
-                    
-                    // Proportional climb/descent rate (max 300 RC out of 660)
-                    val vertSpeed = (altDiff * 100.0).coerceIn(-300.0, 300.0).toInt()
-                    
-                    vs.leftStick.verticalPosition = vertSpeed
-                    vs.leftStick.horizontalPosition = 0
-                    vs.rightStick.verticalPosition = 0
-                    vs.rightStick.horizontalPosition = 0
+                    // Altitude adjustment phase: climb/descend in place while aligning the nose.
+                    val climbRate = (altDiff * 0.5).coerceIn(-MAX_CLIMB_RATE_MPS, MAX_CLIMB_RATE_MPS)
+                    applyVelocitySetpoint(threadParam, targetYawBearing, 0.0, climbRate, yawRate)
                     vs.sendVirtualStickAdvancedParam(threadParam)
                 } else if (distance > 5.0) {
-                    // Horizontal flight phase
-                    vs.setVirtualStickAdvancedModeEnabled(true) // Use Advanced GROUND mode
-                    
-                    val maxRc = 660.0
-                    val speedFactor = Math.min(currentWp.speed / 15.0, 1.0) // Normalize speed to 15m/s max
-                    
-                    // Convert target bearing to absolute velocities for GROUND coordinate system
-                    val pitch = maxRc * Math.cos(Math.toRadians(bearing.toDouble())) * speedFactor
-                    val roll = maxRc * Math.sin(Math.toRadians(bearing.toDouble())) * speedFactor
-                    
-                    // Determine which way the drone's nose (Yaw) should point
-                    val targetYawBearing = if (cameraLockActive && activePoiTarget != null) {
-                        val poiRes = FloatArray(3)
-                        android.location.Location.distanceBetween(droneLat, droneLon, activePoiTarget!!.latitude, activePoiTarget!!.longitude, poiRes)
-                        poiRes[1] // Face the POI
+                    // Horizontal flight phase.
+                    // Yaw Lock Gate (Fix for Drunken Spiral): if the nose is more than 5 degrees
+                    // off the target heading, rotate first and translate only once aligned.
+                    val horizontalSpeed = if (Math.abs(normalizedYaw) > 5.0) {
+                        0.0
                     } else {
-                        bearing // Face the Waypoint
+                        currentWp.speed.coerceIn(0.0, MAX_MISSION_SPEED_MPS)
                     }
-                    
-                    val relativeYawError = targetYawBearing - droneYaw
-                    val normalizedYaw = ((relativeYawError % 360) + 540) % 360 - 180
-                    
-                    // Proportional yaw control (maxing out at 300 so it doesn't spin violently)
-                    val yawSpeed = (normalizedYaw * 4.0).coerceIn(-300.0, 300.0).toInt()
-                    
-                    // Yaw Lock Gate (Fix for Drunken Spiral)
-                    // If the drone is facing more than 5 degrees away from the target heading,
-                    // pause horizontal movement and prioritize rotation.
-                    val actualPitch = if (Math.abs(normalizedYaw) > 5.0) 0 else pitch.toInt()
-                    val actualRoll = if (Math.abs(normalizedYaw) > 5.0) 0 else roll.toInt()
-                    
-                    vs.leftStick.verticalPosition = 0
-                    vs.leftStick.horizontalPosition = yawSpeed
-                    vs.rightStick.verticalPosition = actualPitch
-                    vs.rightStick.horizontalPosition = actualRoll
-                    
+                    // Translate toward the waypoint; the nose is driven separately by yawRate.
+                    applyVelocitySetpoint(threadParam, bearing.toDouble(), horizontalSpeed, 0.0, yawRate)
                     vs.sendVirtualStickAdvancedParam(threadParam)
                 } else {
-                    // Reached the waypoint!
-                    
-                    // Stop movement
-                    vs.leftStick.verticalPosition = 0
-                    vs.leftStick.horizontalPosition = 0
-                    vs.rightStick.verticalPosition = 0
-                    vs.rightStick.horizontalPosition = 0
+                    // Reached the waypoint! Hold position.
+                    applyVelocitySetpoint(threadParam, 0.0, 0.0, 0.0, 0.0)
                     vs.sendVirtualStickAdvancedParam(threadParam)
-                    
+
                     // --- WAYPOINT ACTION EXECUTION ---
+                    // Runs as a non-blocking state machine. The loop keeps iterating (and keeps
+                    // sending hold setpoints above) while the gimbal settles and the shutter
+                    // fires, so the >=5Hz virtual-stick command stream is never interrupted.
+                    // Sleeping the thread here used to stall it for ~4.5s and drop the aircraft
+                    // out of virtual-stick control.
                     val postActions = currentWp.actionType.split(",").map { it.trim().uppercase() }.filter { it.isNotEmpty() }
-                    for (action in postActions) {
-                        when (action) {
-                            "PHOTO" -> {
-                                runOnUiThread { showToast("ACTION: CAPTURING PHOTO") }
-                                if (currentWp.poiTarget != null) {
-                                    val poiRes = FloatArray(3)
-                                    android.location.Location.distanceBetween(droneLat, droneLon, currentWp.poiTarget!!.latitude, currentWp.poiTarget!!.longitude, poiRes)
-                                    val distanceToPoi = poiRes[0]
-                                    if (distanceToPoi > 0) {
-                                        val poiBearing = poiRes[1]
-                                        val relativeBearing = poiBearing - droneYaw
-                                        val normalizedYaw = ((relativeBearing % 360) + 540) % 360 - 180
-                                        val targetPitch = Math.toDegrees(Math.atan2(-droneAlt, distanceToPoi.toDouble()))
-                                        
-                                        val gimbalParam = dji.sdk.keyvalue.value.gimbal.GimbalAngleRotation()
-                                        gimbalParam.mode = dji.sdk.keyvalue.value.gimbal.GimbalAngleRotationMode.ABSOLUTE_ANGLE
-                                        gimbalParam.pitch = targetPitch
-                                        gimbalParam.roll = 0.0
-                                        gimbalParam.yaw = normalizedYaw
-                                        gimbalParam.duration = 1.0
-                                        KeyManager.getInstance().performAction(KeyTools.createKey(GimbalKey.KeyRotateByAngle, ComponentIndexType.LEFT_OR_MAIN), gimbalParam, null)
-                                        Thread.sleep(3000)
-                                    }
+                    val wantsPhoto = postActions.contains("PHOTO")
+                    val nowMs = System.currentTimeMillis()
+
+                    if (wantsPhoto && photoActionStage == PHOTO_STAGE_IDLE) {
+                        // Stage 1: aim the gimbal at the POI (if any) and start the settle timer.
+                        runOnUiThread { showToast("ACTION: CAPTURING PHOTO") }
+                        var settleMs = 0L
+                        if (currentWp.poiTarget != null) {
+                            val poiRes = FloatArray(3)
+                            android.location.Location.distanceBetween(droneLat, droneLon, currentWp.poiTarget!!.latitude, currentWp.poiTarget!!.longitude, poiRes)
+                            val distanceToPoi = poiRes[0]
+                            if (distanceToPoi > 0) {
+                                val poiBearing = poiRes[1]
+                                val relativeBearing = poiBearing - droneYaw
+                                val poiGimbalYaw = ((relativeBearing % 360) + 540) % 360 - 180
+                                val targetPitch = Math.toDegrees(Math.atan2(-droneAlt, distanceToPoi.toDouble()))
+
+                                val gimbalParam = dji.sdk.keyvalue.value.gimbal.GimbalAngleRotation()
+                                gimbalParam.mode = dji.sdk.keyvalue.value.gimbal.GimbalAngleRotationMode.ABSOLUTE_ANGLE
+                                gimbalParam.pitch = targetPitch
+                                gimbalParam.roll = 0.0
+                                gimbalParam.yaw = poiGimbalYaw
+                                gimbalParam.duration = 1.0
+                                // C-01: SDK performAction must run on main thread
+                                runOnUiThread {
+                                    KeyManager.getInstance().performAction(KeyTools.createKey(GimbalKey.KeyRotateByAngle, ComponentIndexType.LEFT_OR_MAIN), gimbalParam, null)
                                 }
-                                if (activeMappingMode == MappingMode.QUICK) {
-                                    runOnUiThread { showToast("ACTION: CAPTURING QUICK SCREENSHOT") }
-                                    captureQuickScreenshot()
-                                } else {
-                                    runOnUiThread { showToast("ACTION: CAPTURING NATIVE PHOTO") }
-                                    capturePhoto()
-                                }
-                                Thread.sleep(1500)
+                                settleMs = GIMBAL_SETTLE_MS
                             }
                         }
+                        photoActionStage = PHOTO_STAGE_SETTLING
+                        photoActionDeadlineMs = nowMs + settleMs
                     }
-                    
+
+                    if (wantsPhoto && photoActionStage == PHOTO_STAGE_SETTLING && nowMs >= photoActionDeadlineMs) {
+                        // Stage 2: fire the shutter and start the capture timer.
+                        // Both capture paths touch views / the SDK, so they must run on main.
+                        if (activeMappingMode == MappingMode.QUICK) {
+                            runOnUiThread {
+                                showToast("ACTION: CAPTURING QUICK SCREENSHOT")
+                                captureQuickScreenshot()
+                            }
+                        } else {
+                            runOnUiThread {
+                                showToast("ACTION: CAPTURING NATIVE PHOTO")
+                                capturePhoto()
+                            }
+                        }
+                        photoActionStage = PHOTO_STAGE_CAPTURING
+                        photoActionDeadlineMs = nowMs + PHOTO_CAPTURE_MS
+                    }
+
+                    // Hold at the waypoint until any pending camera action has finished.
+                    if (wantsPhoto && (photoActionStage != PHOTO_STAGE_CAPTURING || nowMs < photoActionDeadlineMs)) {
+                        Thread.sleep(50)
+                        continue
+                    }
+
+                    // Camera action complete (or none requested) - advance to the next waypoint.
+                    photoActionStage = PHOTO_STAGE_IDLE
+                    photoActionDeadlineMs = 0L
+
                     if (wps.isNotEmpty()) {
                         wps.removeAt(0)
                     } else {
@@ -2572,7 +2714,11 @@ class MainActivity : AppCompatActivity() {
                     
                     if (wps.isEmpty()) {
                         isMissionExecuting = false
-                        runOnUiThread { showToast("Waypoint Mission Completed") }
+                        runOnUiThread {
+                            showToast("Waypoint Mission Completed")
+                            // Advance the C2 task queue; without this it stalls forever.
+                            com.dji.recreate2.task.DroneTaskManager.onTaskCompleted(this@MainActivity)
+                        }
                     } else {
                         runOnUiThread { showToast("Waypoint Reached. Proceeding to next.") }
                     }
@@ -3119,15 +3265,20 @@ class MainActivity : AppCompatActivity() {
 
     private fun downloadLatestMedia() {
         val mediaManager = MediaDataCenter.getInstance().mediaManager
+        if (mediaManager == null) {
+            log("MediaManager unavailable - camera not connected.")
+            showToast("Camera storage unavailable.")
+            return
+        }
         log("Fetching media list...")
-        
+
         mediaManager.pullMediaFileListFromCamera(
             PullMediaFileListParam.Builder().mediaFileIndex(-1).count(-1).build(),
             object : CommonCallbacks.CompletionCallback {
                 override fun onSuccess() {
-                    val mediaList = mediaManager.mediaFileListData.data
+                    val mediaList = mediaManager.mediaFileListData?.data ?: emptyList()
                     log("Scanned SD Card: Found ${mediaList.size} files.")
-                    
+
                     if (mediaList.isNotEmpty()) {
                         val latestFile = mediaList.maxByOrNull { it.fileIndex }
                         latestFile?.let { downloadFileToDedicatedFolder(it) }
@@ -3146,7 +3297,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun downloadFileToDedicatedFolder(mediaFile: MediaFile) {
-        val folder = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "DJI_SDK_Media")
+        // App-scoped storage. The previous target was the public Downloads directory, which
+        // stopped being writable at API 30 - requestLegacyExternalStorage in the manifest is
+        // ignored at targetSdk 35, so this silently failed on every modern device.
+        val folder = File(getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "DJI_SDK_Media")
         if (!folder.exists()) {
             folder.mkdirs()
         }
@@ -3171,20 +3325,21 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
                 override fun onFinish() {
+                    // Close ONLY the buffered wrapper - its close() flushes and then closes the
+                    // delegate. Closing outputStream first (the old order) meant the final
+                    // flush had nowhere to go and could truncate the file.
                     try {
-                        outputStream.close()
                         bos.close()
                     } catch (e: IOException) {}
-                    
+
                     runOnUiThread {
-                        showToast("Saved: Download/DJI_SDK_Media/${mediaFile.fileName}")
+                        showToast("Saved: ${file.absolutePath}")
                         log("Download Complete: ${mediaFile.fileName}")
                     }
                 }
                 override fun onFailure(error: IDJIError?) {
                     try {
                         bos.close()
-                        outputStream.close()
                     } catch (e: Exception) {}
                     try {
                         if (file.exists()) file.delete()
@@ -3328,17 +3483,38 @@ class MainActivity : AppCompatActivity() {
 
     private var joysticksVisible = false
     
+    /**
+     * Zeroes both virtual sticks. In basic (non-advanced) stick mode the SDK keeps
+     * transmitting the last written values at ~25Hz, so a joystick that is merely hidden
+     * would otherwise leave the aircraft climbing or yawing with no on-screen control.
+     */
+    private fun zeroVirtualSticks() {
+        try {
+            val vs = dji.v5.manager.aircraft.virtualstick.VirtualStickManager.getInstance()
+            vs.leftStick.verticalPosition = 0
+            vs.leftStick.horizontalPosition = 0
+            vs.rightStick.verticalPosition = 0
+            vs.rightStick.horizontalPosition = 0
+        } catch (e: Exception) {
+            log("Failed to zero virtual sticks: ${e.message}")
+        }
+    }
+
     private fun updateJoysticksUI() {
         val container = findViewById<View>(R.id.joystickContainer)
         val leftJoystick = findViewById<View>(R.id.leftJoystick)
         val rightJoystick = findViewById<View>(R.id.rightJoystick)
-        
+
         if (!joysticksVisible || currentControlMode == ControlMode.MAP) {
             container.visibility = View.GONE
+            // Never leave residual stick input behind a hidden control.
+            if (!isMissionExecuting) zeroVirtualSticks()
         } else if (currentControlMode == ControlMode.CAM) {
             container.visibility = View.VISIBLE
             leftJoystick.visibility = View.GONE
             rightJoystick.visibility = View.VISIBLE
+            // Left stick (throttle/yaw) is hidden in CAM mode - clear whatever it last sent.
+            if (!isMissionExecuting) zeroVirtualSticks()
         } else if (currentControlMode == ControlMode.FLY) {
             container.visibility = View.VISIBLE
             leftJoystick.visibility = View.VISIBLE
@@ -3354,6 +3530,7 @@ class MainActivity : AppCompatActivity() {
             joysticksVisible = false
             btnToggle.text = "STK"
             updateJoysticksUI()
+            zeroVirtualSticks() // clear residual input before releasing control
             virtualStickManager.disableVirtualStick(null)
         } else {
             joysticksVisible = true
@@ -3486,6 +3663,10 @@ class MainActivity : AppCompatActivity() {
         signalLossAction = sharedPrefs.getInt("signalLossAction", 0)
         radarEnabled = sharedPrefs.getBoolean("radarEnabled", true)
         radarMaxDistance = sharedPrefs.getFloat("radarMaxDistance", 10.0f).toDouble()
+        // cameraFov was previously declared and never assigned, so it stayed at 84.0 for every
+        // lens despite the "use actual camera FOV" note. It drives both the AR home-point
+        // projection and the survey line spacing, so make it a real configurable value.
+        cameraFov = sharedPrefs.getFloat("cameraFovDeg", 84.0f).toDouble()
     }
 
     private fun saveConfig() {
@@ -3499,6 +3680,7 @@ class MainActivity : AppCompatActivity() {
             putInt("signalLossAction", signalLossAction)
             putBoolean("radarEnabled", radarEnabled)
             putFloat("radarMaxDistance", radarMaxDistance.toFloat())
+            putFloat("cameraFovDeg", cameraFov.toFloat())
             apply()
         }
     }
@@ -3741,15 +3923,24 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // Satellite count listener
+        // Satellite count listener.
+        // Single source of truth for satellite count: this used to be registered twice on the
+        // same key, once into satelliteCount and once into droneSatellites, with different
+        // call sites reading each. Both fields are now written here.
         val satsKey = KeyTools.createKey(FlightControllerKey.KeyGPSSatelliteCount)
         KeyManager.getInstance().listen(satsKey, this) { _, count: Int? ->
             if (count != null) {
                 satelliteCount = count
+                droneSatellites = count
+                runOnUiThread { tvGps.text = String.format("SAT: %02d", count) }
             }
         }
 
-        // 3D Velocity Vector Listener (IMU / Downward VPS Optical Flow / Barometer)
+        // 3D Velocity Vector Listener (IMU / Downward VPS Optical Flow / Barometer).
+        // Single source of truth for velocity: this used to be registered twice on the same
+        // key, with two different speed formulas (horizontal here, 3-D in the duplicate), so
+        // the displayed and published speed depended on which listener fired last.
+        // droneSpeed is horizontal ground speed, which is what "speed_mps" means to the GCS.
         val velKey = KeyTools.createKey(FlightControllerKey.KeyAircraftVelocity)
         KeyManager.getInstance().listen(velKey, this) { _, vel ->
             if (vel != null) {
@@ -3760,6 +3951,7 @@ class MainActivity : AppCompatActivity() {
                 droneVy = curVy
                 droneVz = curVz
                 droneSpeed = Math.sqrt(curVx * curVx + curVy * curVy)
+                runOnUiThread { tvSpeed.text = String.format("%04.1fM/S", droneSpeed) }
 
                 val now = System.currentTimeMillis()
                 val dtSec = if (deadReckoningLastTime > 0) (now - deadReckoningLastTime) / 1000.0 else 0.0
@@ -3818,10 +4010,60 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
-                    
+
+        // The payload builder below used to sit here as an orphaned try{} block directly in
+        // the body of monitorTelemetry(), so it ran exactly ONCE during onCreate - and even
+        // that single run threw, because droneLat/droneLon are NaN at startup and
+        // org.json.JSONObject.put(String, double) rejects NaN. Net result: no telemetry was
+        // ever published. It is now a real method driven by a repeating timer, and the
+        // remaining key listeners were split into monitorTelemetryRest().
+        startTelemetryBroadcast()
+        monitorTelemetryRest()
+    }
+
+    /** ~10Hz, matching the rate documented in README.md. */
+    private val TELEMETRY_INTERVAL_MS = 100L
+
+    /**
+     * Starts the periodic C2 telemetry broadcast. The timer is stored in [heartbeatTimer],
+     * which onDestroy already cancels (it was previously declared but never assigned).
+     */
+    private fun startTelemetryBroadcast() {
+        heartbeatTimer?.cancel()
+        val timer = java.util.Timer("TelemetryBroadcast", true)
+        timer.scheduleAtFixedRate(object : java.util.TimerTask() {
+            override fun run() {
+                if (isFinishing || isDestroyed) return
+                if (!::mqttService.isInitialized || !mqttService.isConnected) return
+                try {
+                    val payload = buildTelemetryPayload() ?: return
+                    mqttService.publishTelemetry(jsonPayload = payload.toString())
+                } catch (e: Exception) {
+                    android.util.Log.e("Telemetry", "Telemetry broadcast tick failed", e)
+                }
+            }
+        }, 1000L, TELEMETRY_INTERVAL_MS)
+        heartbeatTimer = timer
+        log("Telemetry broadcast started (${1000 / TELEMETRY_INTERVAL_MS}Hz)")
+    }
+
+    /**
+     * JSON-safe numeric put. org.json rejects NaN/Infinity with a JSONException, which would
+     * abort the entire payload; emit null for non-finite values instead.
+     */
+    private fun putNum(target: org.json.JSONObject, key: String, value: Double) {
+        if (value.isNaN() || value.isInfinite()) {
+            target.put(key, org.json.JSONObject.NULL)
+        } else {
+            target.put(key, value)
+        }
+    }
+
+    /** Snapshots current drone state into the C2 telemetry payload, or null on failure. */
+    private fun buildTelemetryPayload(): org.json.JSONObject? {
                     try {
                         val payload = org.json.JSONObject()
-                        
+
                         if (cachedDroneSn == "UNKNOWN") {
                             val snKey = KeyTools.createKey(dji.sdk.keyvalue.key.FlightControllerKey.KeySerialNumber)
                             cachedDroneSn = dji.v5.manager.KeyManager.getInstance().getValue(snKey) ?: "UNKNOWN"
@@ -3838,17 +4080,19 @@ class MainActivity : AppCompatActivity() {
                         payload.put("timestamp", System.currentTimeMillis())
                         
                         val loc = org.json.JSONObject()
-                        loc.put("latitude", droneLat)
-                        loc.put("longitude", droneLon)
-                        loc.put("altitude_m", droneAlt)
+                        // putNum: these are NaN until the first GPS fix, and a raw put(NaN)
+                        // throws JSONException and discards the whole payload.
+                        putNum(loc, "latitude", droneLat)
+                        putNum(loc, "longitude", droneLon)
+                        putNum(loc, "altitude_m", droneAlt)
                         payload.put("location", loc)
-                        
+
                         val flightStatus = org.json.JSONObject()
-                        flightStatus.put("heading_deg", droneYaw)
-                        flightStatus.put("speed_mps", droneSpeed)
-                        flightStatus.put("velocity_x", droneVx)
-                        flightStatus.put("velocity_y", droneVy)
-                        flightStatus.put("velocity_z", droneVz)
+                        putNum(flightStatus, "heading_deg", droneYaw)
+                        putNum(flightStatus, "speed_mps", droneSpeed)
+                        putNum(flightStatus, "velocity_x", droneVx)
+                        putNum(flightStatus, "velocity_y", droneVy)
+                        putNum(flightStatus, "velocity_z", droneVz)
                         flightStatus.put("is_flying", isFlying)
                         flightStatus.put("is_mission_executing", isMissionExecuting)
                         val groundState = when {
@@ -3927,9 +4171,9 @@ class MainActivity : AppCompatActivity() {
                         payload.put("battery", batteryObj)
 
                         val gimbalObj = org.json.JSONObject()
-                        gimbalObj.put("pitch", gimbalPitch)
-                        gimbalObj.put("roll", gimbalRoll)
-                        gimbalObj.put("yaw", gimbalYaw)
+                        putNum(gimbalObj, "pitch", gimbalPitch)
+                        putNum(gimbalObj, "roll", gimbalRoll)
+                        putNum(gimbalObj, "yaw", gimbalYaw)
                         payload.put("gimbal", gimbalObj)
 
                         val activeTask = com.dji.recreate2.task.DroneTaskManager.activeTask
@@ -3945,14 +4189,18 @@ class MainActivity : AppCompatActivity() {
 
                         payload.put("gpsDeniedMode", com.dji.recreate2.flight.ConfinedSpaceFlightManager.isGpsDeniedModeEnabled)
                         payload.put("confinedSpaceMode", com.dji.recreate2.flight.ConfinedSpaceFlightManager.isConfinedSpaceModeEnabled)
-                        payload.put("obstacleBrakeDistanceMeters", com.dji.recreate2.flight.ConfinedSpaceFlightManager.obstacleBrakeDistanceMeters)
+                        putNum(payload, "obstacleBrakeDistanceMeters", com.dji.recreate2.flight.ConfinedSpaceFlightManager.obstacleBrakeDistanceMeters)
                         
                         mqttService.updateDroneId(currentDroneId)
-                        mqttService.publishTelemetry(jsonPayload = payload.toString())
+                        return payload
                     } catch (e: Exception) {
-                        e.printStackTrace()
+                        android.util.Log.e("Telemetry", "Failed to build telemetry payload", e)
+                        return null
                     }
+    }
 
+    /** Remaining MSDK key listeners, split out when buildTelemetryPayload() was extracted. */
+    private fun monitorTelemetryRest() {
             KeyManager.getInstance().setValue(KeyTools.createKey(RtkMobileStationKey.KeyRTKEnable), true, null)
             rtkLocationListener = dji.v5.manager.aircraft.rtk.RTKLocationInfoListener { rtkInfo ->
                 val solution = rtkInfo.rtkLocation?.positioningSolution
@@ -4056,17 +4304,8 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        val velocityKey = KeyTools.createKey(FlightControllerKey.KeyAircraftVelocity)
-        KeyManager.getInstance().listen(velocityKey, this) { _, newValue ->
-            newValue?.let {
-                droneVx = it.x
-                droneVy = it.y
-                droneVz = it.z
-                val speed = Math.sqrt(it.x * it.x + it.y * it.y + it.z * it.z)
-                droneSpeed = speed
-                runOnUiThread { tvSpeed.text = String.format("%04.1fM/S", speed) }
-            }
-        }
+        // NOTE: the duplicate KeyAircraftVelocity listener that used to live here was removed;
+        // velocity and tvSpeed are now owned solely by the velKey listener in monitorTelemetry().
 
         val attitudeKey = KeyTools.createKey(FlightControllerKey.KeyAircraftAttitude)
         val tvHeading = findViewById<TextView>(R.id.tvHeading)
@@ -4084,13 +4323,9 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        val gpsKey = KeyTools.createKey(FlightControllerKey.KeyGPSSatelliteCount)
-        KeyManager.getInstance().listen(gpsKey, this) { _, newValue: Int? ->
-            newValue?.let { 
-                droneSatellites = it
-                runOnUiThread { tvGps.text = String.format("SAT: %02d", it) } 
-            }
-        }
+        // NOTE: the duplicate KeyGPSSatelliteCount listener that used to live here was removed;
+        // droneSatellites and tvGps are now owned solely by the satsKey listener in
+        // monitorTelemetry().
 
         val isFlyingKey = KeyTools.createKey(FlightControllerKey.KeyIsFlying)
         KeyManager.getInstance().listen(isFlyingKey, this) { _, newValue: Boolean? ->
@@ -4537,6 +4772,12 @@ class MainActivity : AppCompatActivity() {
         })
     }
 
+    /**
+     * Gate for the optical object-tracking loop. Keep false until a real detector supplies
+     * lastTargetNormX/Y — see startOpticalObjectTracking() for the full rationale.
+     */
+    private val ENABLE_OPTICAL_OBJECT_TRACKING = false
+
     private var objectTrackingOverlay: ObjectTrackingOverlayView? = null
     private var isObjectTrackingActive = false
     private var trackingLoopThread: Thread? = null
@@ -4608,13 +4849,37 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        // ---------------------------------------------------------------------------
+        // OPTICAL OBJECT TRACKING IS DISABLED — there is no detector behind it.
+        //
+        // The loop below closed on lastTargetNormX/Y, which were then updated from the
+        // *commanded* gimbal rate rather than from any observation. Nothing ever fed real
+        // detections in (setupObjectTracking pushes an empty box list), so the reticle simply
+        // decayed to centre regardless of what was on screen, while the UI announced
+        // "HYBRID UNLIMITED FOLLOW ACTIVE [APAS 54km/h]". Running it drives the gimbal off a
+        // fabricated error signal.
+        //
+        // The box is still drawn as a visual designation. For a real, working lock use the
+        // Targeting Pod geo-lock (btnTgpLock / toggleTargetingPodLock), which slews the gimbal
+        // from actual GPS geometry.
+        //
+        // To restore this feature, feed lastTargetNormX/Y from a genuine detector (DJI
+        // ActiveTrack or an on-device model) and re-enable the loop below.
+        // ---------------------------------------------------------------------------
+        if (!ENABLE_OPTICAL_OBJECT_TRACKING) {
+            isObjectTrackingActive = false
+            log("Optical object tracking requested but no detector is available; box is a visual designation only.")
+            showToast("🎯 TARGET MARKED (visual only) — use TGP for a real geo-lock")
+            return
+        }
+
         isObjectTrackingActive = true
         com.dji.recreate2.tracking.CustomUnlimitedFollowEngine.startHybridFollow()
         com.dji.recreate2.tracking.CustomUnlimitedFollowEngine.configureOptimalActiveTrack(15.0, 8.0)
         com.dji.recreate2.tracking.CustomUnlimitedFollowEngine.updateTargetObservation(normX, normY)
 
         log("Started Optical Object Tracking & Hybrid Unlimited Follow on Target Box: center=($normX, $normY)")
-        showToast("HYBRID UNLIMITED FOLLOW ACTIVE [APAS 54km/h]")
+        showToast("OBJECT FOLLOW ACTIVE")
 
         trackingLoopThread?.interrupt()
         trackingLoopThread = Thread {
@@ -4711,7 +4976,10 @@ class MainActivity : AppCompatActivity() {
         val dLon = if (targetLon != null && targetLon != 0.0) targetLon else droneLon
         val dAlt = if (targetAlt != null && targetAlt > 0.0) targetAlt else (droneAlt - 15.0).coerceAtLeast(0.0)
 
-        if (dLat == 0.0 && dLon == 0.0) {
+        // isNaN, not == 0.0: droneLat/droneLon start as Double.NaN, and NaN != 0.0 is true, so
+        // the old guard let un-fixed coordinates straight through and the lock thread then
+        // sent NaN pitch/yaw to the gimbal.
+        if (dLat.isNaN() || dLon.isNaN() || (dLat == 0.0 && dLon == 0.0)) {
             showToast("⚠️ TGP Lock Error: Waiting for Drone GPS fix...")
             return
         }
@@ -4740,7 +5008,7 @@ class MainActivity : AppCompatActivity() {
                     val curLon = droneLon
                     val curAlt = droneAlt
 
-                    if (curLat != 0.0 && curLon != 0.0) {
+                    if (!curLat.isNaN() && !curLon.isNaN() && !curAlt.isNaN() && curLat != 0.0 && curLon != 0.0) {
                         val dN = (tgpTargetLat - curLat) * 111132.92
                         val dE = (tgpTargetLon - curLon) * 111412.84 * Math.cos(Math.toRadians(curLat))
                         val dU = tgpTargetAlt - curAlt
@@ -6327,6 +6595,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun publishWaypointsUpdate() {
+        // Every waypoint mutation funnels through here, so this is the single hook that keeps
+        // the active WaypointRoute in step with the working list.
+        syncActiveRoute()
         if (!::mqttService.isInitialized) return
         try {
             val json = org.json.JSONObject()
@@ -6678,19 +6949,30 @@ class MainActivity : AppCompatActivity() {
                     "UPLOAD_KMZ" -> {
                         publishCommandReceipt(transactionId, command, "EXECUTING")
                         val base64Data = json.getString("data")
-                        val bytes = android.util.Base64.decode(base64Data, android.util.Base64.DEFAULT)
-                        val file = java.io.File(getExternalFilesDir(null), "c2_imported_mission.kmz")
-                        java.io.FileOutputStream(file).use { it.write(bytes) }
-                        
-                        if (::mqttService.isInitialized) {
-                            val logObj = org.json.JSONObject()
-                            logObj.put("event", "KMZ_UPLOAD_RECEIVED")
-                            mqttService.publishMission(jsonPayload = logObj.toString())
-                        }
-                        
-                        runOnUiThread { showToast("C2: KMZ Received, Pushing to Drone...") }
-                        executeNativeKMZ(file.absolutePath)
-                        publishCommandReceipt(transactionId, command, "COMPLETED")
+                        // Decode + write off the main thread; the payload can be several MB.
+                        Thread({
+                            try {
+                                val bytes = android.util.Base64.decode(base64Data, android.util.Base64.DEFAULT)
+                                val file = java.io.File(getExternalFilesDir(null), "c2_imported_mission.kmz")
+                                java.io.FileOutputStream(file).use { it.write(bytes) }
+
+                                if (::mqttService.isInitialized) {
+                                    val logObj = org.json.JSONObject()
+                                    logObj.put("event", "KMZ_UPLOAD_RECEIVED")
+                                    mqttService.publishMission(jsonPayload = logObj.toString())
+                                }
+
+                                runOnUiThread {
+                                    if (isFinishing || isDestroyed) return@runOnUiThread
+                                    showToast("C2: KMZ Received, Pushing to Drone...")
+                                    executeNativeKMZ(file.absolutePath)
+                                    publishCommandReceipt(transactionId, command, "COMPLETED")
+                                }
+                            } catch (e: Exception) {
+                                android.util.Log.e("KMZ_SysLog", "UPLOAD_KMZ failed: ${e.message}", e)
+                                publishCommandReceipt(transactionId, command, "FAILED", errorCode = -22, errorMessage = "KMZ write failed: ${e.message}")
+                            }
+                        }, "C2-UploadKmz").start()
                     }
                     "START_KMZ" -> {
                         publishCommandReceipt(transactionId, command, "EXECUTING")
@@ -7390,12 +7672,24 @@ class MainActivity : AppCompatActivity() {
             if (p.longitude > maxLon) maxLon = p.longitude
         }
         
-        // 2. Calculate line spacing based on Altitude and Side Overlap
-        val fovTan = Math.tan(Math.toRadians(cameraFov / 2.0))
-        val swathWidth = 2 * previewAlt * fovTan
-        val distanceBetweenLinesMeters = swathWidth * (1.0 - (overlapPct / 100.0))
-        
-        if (distanceBetweenLinesMeters < 1.0) return
+        // 2. Calculate spacing from altitude, FOV and overlap.
+        // ACROSS-track (line spacing) uses the horizontal FOV; ALONG-track (photo interval)
+        // uses the vertical FOV. Both used to be derived from the horizontal swath, so on a
+        // non-square sensor the real forward overlap did not match what the operator asked for.
+        val hFovDeg = cameraFov
+        val vFovDeg = hFovDeg * (9.0 / 16.0) // same aspect assumption as updateARHomePoint()
+        val sideSwathMeters  = 2 * previewAlt * Math.tan(Math.toRadians(hFovDeg / 2.0))
+        val frontSwathMeters = 2 * previewAlt * Math.tan(Math.toRadians(vFovDeg / 2.0))
+
+        val overlapFraction = (1.0 - (overlapPct / 100.0)).coerceIn(0.05, 1.0)
+        val distanceBetweenLinesMeters = sideSwathMeters * overlapFraction
+        val photoIntervalMeters = (frontSwathMeters * overlapFraction).coerceAtLeast(1.0)
+
+        if (distanceBetweenLinesMeters < 1.0) {
+            showToast("Grid spacing too small - raise altitude or lower overlap.")
+            mapView.invalidate()
+            return
+        }
         
         val latStep = distanceBetweenLinesMeters / 111320.0
         val lonStepBase = distanceBetweenLinesMeters / (111320.0 * Math.cos(Math.toRadians((minLat + maxLat) / 2.0)))
@@ -7428,8 +7722,8 @@ class MainActivity : AppCompatActivity() {
                     val extendedLon2 = lon2 + lonOvershoot
                     val lonDistance = extendedLon2 - extendedLon1
                     val metersLon = lonDistance * (111320.0 * Math.cos(Math.toRadians(currentLat)))
-                    val frontOverlapDistance = swathWidth * (1.0 - (overlapPct / 100.0))
-                    val numPhotos = Math.max(2, Math.ceil(Math.abs(metersLon) / frontOverlapDistance).toInt() + 1)
+                    // Along-track spacing uses the vertical-FOV swath, not the horizontal one.
+                    val numPhotos = Math.max(2, Math.ceil(Math.abs(metersLon) / photoIntervalMeters).toInt() + 1)
                     val lonInterval = lonDistance / (numPhotos - 1)
                     
                     if (isLeftToRight) {
@@ -7478,8 +7772,8 @@ class MainActivity : AppCompatActivity() {
                         val extendedLat2 = lat2 + latOvershoot
                         val latDistance = extendedLat2 - extendedLat1
                         val metersLat = latDistance * 111320.0
-                        val frontOverlapDistance = swathWidth * (1.0 - (overlapPct / 100.0))
-                        val numPhotos = Math.max(2, Math.ceil(Math.abs(metersLat) / frontOverlapDistance).toInt() + 1)
+                        // Along-track spacing uses the vertical-FOV swath, not the horizontal one.
+                        val numPhotos = Math.max(2, Math.ceil(Math.abs(metersLat) / photoIntervalMeters).toInt() + 1)
                         val latInterval = latDistance / (numPhotos - 1)
                         
                         if (isTopToBottom) {
@@ -7515,6 +7809,9 @@ class MainActivity : AppCompatActivity() {
     
     private var liveStreamStatusListener: dji.v5.manager.datacenter.livestream.LiveStreamStatusListener? = null
 
+    /** Port the go2rtc RTMP ingest listens on when a WHIP URL is mapped to an RTMP push. */
+    private val RTMP_PUSH_PORT = 1936
+
     private fun startRtmpStream(url: String) {
         val cleanUrl = url.trim()
         if (cleanUrl.isEmpty()) return
@@ -7539,11 +7836,26 @@ class MainActivity : AppCompatActivity() {
             // we must use RTMP (TCP) push or RTSP Server. Native WHIP WebRTC requires libwebrtc and software encoding, which overloads the Redmi 15C.
 
             val targetStreamUrl = if (isWhip) {
-                // If user clicks WHIP, we map it to RTMP push since pure WHIP cannot be hardware-encoded on this device.
-                val streamName = cleanUrl.substringAfter("dst=", "").ifEmpty { cleanUrl.substringAfter("src=", "").ifEmpty { "dji-sdk-view-asli" } }
-                val host = if (cleanUrl.contains("rtc.blackeye.id")) "rtc.blackeye.id" else "10.12.0.15"
-                // STRIP AUTH for RTMP Push: go2rtc RTMP server does not require URL auth by default, and DJI encoder might crash parsing it!
-                "rtmp://$host:1936/live/$streamName"
+                // WHIP cannot be hardware-encoded on this device, so map it to an RTMP push.
+                // Derive the host from the URL the operator actually entered - the previous
+                // code discarded it and hardcoded either rtc.blackeye.id or 10.12.0.15, so a
+                // stream aimed at any other server silently went somewhere else entirely.
+                val streamName = cleanUrl.substringAfter("dst=", "").ifEmpty {
+                    cleanUrl.substringAfter("src=", "").ifEmpty { "dji-sdk-view-asli" }
+                }.substringBefore("&")
+                val parsedHost = try {
+                    java.net.URI.create(cleanUrl).host
+                } catch (e: Exception) {
+                    null
+                }
+                if (parsedHost.isNullOrBlank()) {
+                    showToast("✗ Cannot parse stream host from: $cleanUrl")
+                    log("Stream aborted: no host in URL '$cleanUrl'")
+                    return
+                }
+                // STRIP AUTH for RTMP Push: go2rtc's RTMP server does not require URL auth by
+                // default, and the DJI encoder can fail parsing inline credentials.
+                "rtmp://$parsedHost:$RTMP_PUSH_PORT/live/$streamName"
             } else {
                 cleanUrl
             }
@@ -7609,11 +7921,15 @@ class MainActivity : AppCompatActivity() {
                         }
                     }
                 }
-                liveStreamStatusListener?.let { liveStreamManager.addLiveStreamStatusListener(it) }
-                
-                // Set main camera as primary stream source
-                liveStreamManager.cameraIndex = dji.sdk.keyvalue.value.common.ComponentIndexType.LEFT_OR_MAIN
-                
+                // Remove first, then add: startRtmpStream can be called repeatedly and the SDK
+                // would otherwise accumulate duplicate registrations of the same instance.
+                liveStreamStatusListener?.let {
+                    liveStreamManager.removeLiveStreamStatusListener(it)
+                    liveStreamManager.addLiveStreamStatusListener(it)
+                }
+
+                // (cameraIndex already set above - the duplicate assignment here was removed.)
+
                 liveStreamManager.startStream(object : dji.v5.common.callback.CommonCallbacks.CompletionCallback {
                     override fun onSuccess() {
                         runOnUiThread {
@@ -7647,12 +7963,11 @@ class MainActivity : AppCompatActivity() {
             showToast("Stopping FPV Stream")
             android.util.Log.i("KMZ_SysLog", "FPV Stream Stop Command Received")
 
-            if (com.dji.recreate2.sync.WhipWebRtcManager.isStreaming) {
-                com.dji.recreate2.sync.WhipWebRtcManager.stopWhipStream(
-                    onSuccess = { runOnUiThread { showToast("WHIP WebRTC Stream Stopped!") } },
-                    onError = { err -> runOnUiThread { showToast("WHIP Stop Error: $err") } }
-                )
-            }
+            // NOTE: the WhipWebRtcManager / NativeWebRtcStreamManager branch was removed along
+            // with those classes. They never sent any media - the frame listener body was
+            // empty and the SDP offer carried a hard-coded fake DTLS fingerprint - while
+            // disabling all TLS validation. Streaming goes through the DJI hardware encoder
+            // (RTMP/RTSP) below. Commit 4b6933d had already reverted that path in spirit.
 
             val liveStreamManager = dji.v5.manager.datacenter.MediaDataCenter.getInstance().liveStreamManager
             liveStreamStatusListener?.let {
@@ -7960,6 +8275,9 @@ class MainActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         cancelActiveMission()
+        // Stops the tracking/TGP threads AND restores the obstacle avoidance mode that the
+        // follow engine forced to BYPASS - otherwise it would leak past the activity.
+        stopAllCameraTracking()
         takeoffWaitThread?.interrupt() // M-07: stop any pending takeoff wait
         takeoffWaitThread = null
         ledBlinkThread?.interrupt()
@@ -8117,7 +8435,11 @@ class MainActivity : AppCompatActivity() {
             }
 
             if (state == dji.v5.manager.aircraft.waypoint3.model.WaypointMissionExecuteState.FINISHED) {
-                runOnUiThread { showToast("KMZ Mission Finished. Triggering Auto RTH...") }
+                runOnUiThread {
+                    showToast("KMZ Mission Finished. Triggering Auto RTH...")
+                    // Advance the C2 task queue; without this it stalls forever.
+                    com.dji.recreate2.task.DroneTaskManager.onTaskCompleted(this@MainActivity)
+                }
                 
                 if (::mqttService.isInitialized) {
                     val logObj = org.json.JSONObject()
@@ -8215,19 +8537,57 @@ class MainActivity : AppCompatActivity() {
                 KeyManager.getInstance().setValue(key, originalSettings, null)
                 Thread.sleep(500)
                 
+                if (Thread.currentThread().isInterrupted || isFinishing || isDestroyed) return@Thread
+
+                // --- ACTUALLY START THE MOTORS ---
+                // Previously this method only blinked the LEDs and reported COMPLETED, so the
+                // C2 server was told the aircraft had armed when nothing had happened.
+                runOnUiThread { log("🔥 Lights blinked. Issuing motor start...") }
+
+                val turnOnKey = KeyTools.createKey(FlightControllerKey.KeyTurnOnTheMotor)
+                val armLatch = java.util.concurrent.CountDownLatch(1)
+                val armError = java.util.concurrent.atomic.AtomicReference<String?>(null)
+
+                // C-01: SDK performAction must run on main thread
+                runOnUiThread {
+                    KeyManager.getInstance().performAction(turnOnKey, object : CommonCallbacks.CompletionCallbackWithParam<dji.sdk.keyvalue.value.common.EmptyMsg> {
+                        override fun onSuccess(t: dji.sdk.keyvalue.value.common.EmptyMsg?) {
+                            armLatch.countDown()
+                        }
+                        override fun onFailure(error: IDJIError) {
+                            armError.set("[${error.errorCode()}] ${error.description()}")
+                            armLatch.countDown()
+                        }
+                    })
+                }
+
+                if (!armLatch.await(10, java.util.concurrent.TimeUnit.SECONDS)) {
+                    failArming(transactionId, cmdAlias, "Motor start timed out (no SDK response).")
+                    return@Thread
+                }
+                val armErr = armError.get()
+                if (armErr != null) {
+                    failArming(transactionId, cmdAlias, "Motor start rejected: $armErr")
+                    return@Thread
+                }
+
+                // Only report success once the aircraft actually confirms motors are running.
+                if (!awaitMotorState(true, 5000L)) {
+                    failArming(transactionId, cmdAlias, "Motor start issued but KeyAreMotorsOn never became true.")
+                    return@Thread
+                }
+
                 if (!Thread.currentThread().isInterrupted && !isFinishing && !isDestroyed) {
                     runOnUiThread {
                         if (!isFinishing && !isDestroyed) {
-                            log("🔥 Arming completed and lights blinked twice successfully.")
-                            // Set local engine state
+                            log("🔥 ARMED: motors confirmed running.")
                             isEngineOn = true
-                            // Update UI
                             val tvEngineStatus = findViewById<TextView?>(R.id.tvEngineStatus)
                             tvEngineStatus?.text = "ENG: ACTIVE"
                             tvEngineStatus?.setTextColor(android.graphics.Color.GREEN)
                             dTvEngineStatus?.text = "ENG: ACTIVE"
                             dTvEngineStatus?.setTextColor(android.graphics.Color.GREEN)
-                            
+
                             publishCommandReceipt(transactionId, cmdAlias, "COMPLETED")
                         }
                     }
@@ -8235,31 +8595,140 @@ class MainActivity : AppCompatActivity() {
             } catch (e: InterruptedException) {
                 Thread.currentThread().interrupt()
             } catch (e: Exception) {
-                if (!Thread.currentThread().isInterrupted && !isFinishing && !isDestroyed) {
-                    runOnUiThread {
-                        if (!isFinishing && !isDestroyed) {
-                            log("❌ Error during LED arming blink: ${e.message}")
-                            publishCommandReceipt(transactionId, cmdAlias, "COMPLETED")
-                        }
-                    }
-                }
+                // An exception means arming did NOT complete - report FAILED, never COMPLETED.
+                failArming(transactionId, cmdAlias, "Exception during arming: ${e.message}")
             }
         }, "Arming-LED-Blink")
         ledBlinkThread = t
         t.start()
     }
 
-    private fun stopEngineUsingVirtualStick(transactionId: String? = null) {
+    /** Reports an arming failure consistently: logs, and publishes FAILED (never COMPLETED). */
+    private fun failArming(transactionId: String?, cmdAlias: String, reason: String) {
+        if (isFinishing || isDestroyed) return
         runOnUiThread {
-            log("🔥 Disarming drone: setting engine state to inactive.")
-            isEngineOn = false
-            val tvEngineStatus = findViewById<TextView?>(R.id.tvEngineStatus)
-            tvEngineStatus?.text = "ENG: INACTIVE"
-            tvEngineStatus?.setTextColor(android.graphics.Color.parseColor("#00FF00"))
-            dTvEngineStatus?.text = "ENG: INACTIVE"
-            dTvEngineStatus?.setTextColor(android.graphics.Color.parseColor("#00FF00"))
-            publishCommandReceipt(transactionId, "DISARM", "COMPLETED")
+            if (!isFinishing && !isDestroyed) {
+                log("❌ Arming failed: $reason")
+                showToast("ARM FAILED: $reason")
+                isEngineOn = false
+                publishCommandReceipt(transactionId, cmdAlias, "FAILED", errorMessage = reason)
+            }
         }
+    }
+
+    /**
+     * Polls KeyAreMotorsOn until it reads [expected] or [timeoutMs] elapses.
+     * Must be called from a background thread. Returns true if [expected] was observed.
+     */
+    private fun awaitMotorState(expected: Boolean, timeoutMs: Long): Boolean {
+        val motorsKey = KeyTools.createKey(FlightControllerKey.KeyAreMotorsOn)
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < deadline) {
+            if (Thread.currentThread().isInterrupted) return false
+            val on = KeyManager.getInstance().getValue(motorsKey) ?: false
+            if (on == expected) return true
+            try {
+                Thread.sleep(250)
+            } catch (e: InterruptedException) {
+                Thread.currentThread().interrupt()
+                return false
+            }
+        }
+        return false
+    }
+
+    private fun stopEngineUsingVirtualStick(transactionId: String? = null) {
+        // Refuse to cut motors in flight - that is a free-fall, not a disarm.
+        if (isFlying) {
+            runOnUiThread { log("❌ Disarm refused: aircraft is airborne.") }
+            publishCommandReceipt(transactionId, "DISARM", "FAILED", errorMessage = "Aircraft is airborne; land before disarming.")
+            return
+        }
+        if (!droneConnected) {
+            runOnUiThread { log("❌ Disarm failed: drone is not connected / paired.") }
+            publishCommandReceipt(transactionId, "DISARM", "FAILED", errorMessage = "Drone is not connected / paired.")
+            return
+        }
+
+        val t = Thread({
+            try {
+                val vs = dji.v5.manager.aircraft.virtualstick.VirtualStickManager.getInstance()
+                val enableLatch = java.util.concurrent.CountDownLatch(1)
+                val enableError = java.util.concurrent.atomic.AtomicReference<String?>(null)
+
+                runOnUiThread {
+                    vs.enableVirtualStick(object : CommonCallbacks.CompletionCallback {
+                        override fun onSuccess() {
+                            enableLatch.countDown()
+                        }
+                        override fun onFailure(error: IDJIError) {
+                            enableError.set("[${error.errorCode()}] ${error.description()}")
+                            enableLatch.countDown()
+                        }
+                    })
+                }
+
+                if (!enableLatch.await(5, java.util.concurrent.TimeUnit.SECONDS) || enableError.get() != null) {
+                    val reason = enableError.get() ?: "Virtual Stick enable timed out."
+                    runOnUiThread {
+                        log("❌ Disarm failed: $reason")
+                        publishCommandReceipt(transactionId, "DISARM", "FAILED", errorMessage = reason)
+                    }
+                    return@Thread
+                }
+
+                // CSC (Combination Stick Command): both sticks held to the inner-bottom
+                // corners stops the motors while landed.
+                runOnUiThread {
+                    vs.setVirtualStickAdvancedModeEnabled(false)
+                    vs.leftStick.verticalPosition = -660
+                    vs.leftStick.horizontalPosition = 660
+                    vs.rightStick.verticalPosition = -660
+                    vs.rightStick.horizontalPosition = -660
+                }
+
+                val stopped = awaitMotorState(false, 4000L)
+
+                runOnUiThread {
+                    vs.leftStick.verticalPosition = 0
+                    vs.leftStick.horizontalPosition = 0
+                    vs.rightStick.verticalPosition = 0
+                    vs.rightStick.horizontalPosition = 0
+                    if (!joysticksVisible) {
+                        vs.disableVirtualStick(null)
+                    }
+                }
+
+                runOnUiThread {
+                    if (isFinishing || isDestroyed) return@runOnUiThread
+                    if (stopped) {
+                        log("🔥 DISARMED: motors confirmed stopped.")
+                        isEngineOn = false
+                        val tvEngineStatus = findViewById<TextView?>(R.id.tvEngineStatus)
+                        tvEngineStatus?.text = "ENG: INACTIVE"
+                        tvEngineStatus?.setTextColor(android.graphics.Color.parseColor("#00FF00"))
+                        dTvEngineStatus?.text = "ENG: INACTIVE"
+                        dTvEngineStatus?.setTextColor(android.graphics.Color.parseColor("#00FF00"))
+                        publishCommandReceipt(transactionId, "DISARM", "COMPLETED")
+                    } else {
+                        log("❌ Disarm failed: KeyAreMotorsOn never became false.")
+                        showToast("DISARM FAILED: motors still running")
+                        publishCommandReceipt(transactionId, "DISARM", "FAILED", errorMessage = "CSC issued but motors did not stop.")
+                    }
+                }
+            } catch (e: InterruptedException) {
+                Thread.currentThread().interrupt()
+            } catch (e: Exception) {
+                runOnUiThread {
+                    if (!isFinishing && !isDestroyed) {
+                        log("❌ Disarm exception: ${e.message}")
+                        publishCommandReceipt(transactionId, "DISARM", "FAILED", errorMessage = "Exception during disarm: ${e.message}")
+                    }
+                }
+            }
+        }, "Disarm-CSC")
+        ledBlinkThread = t
+        t.start()
     }
 
     private fun cancelActiveMission() {
@@ -8282,7 +8751,18 @@ class MainActivity : AppCompatActivity() {
         val clearUI = {
             orbitCircleOverlays.forEach { mapView.overlays.remove(it) }
             orbitCircleOverlays.clear()
-            mapView.overlays.removeAll { it is org.osmdroid.views.overlay.Polygon }
+            // Remove the waypoint markers whose backing list we just cleared, so they do not
+            // linger as orphans on the map.
+            mapView.overlays.removeAll {
+                it is org.osmdroid.views.overlay.Marker &&
+                    it != droneMarker && it != homeMapMarker && it != rthMarker &&
+                    it !in gpsTagMapMarkers && it !in shapeVertexMarkers
+            }
+            flightPathPolyline?.let { mapView.overlays.remove(it) }
+            flightPathPolyline = null
+            // NOTE: operator-drawn Polygons (no-fly zones) are deliberately NOT removed here.
+            // Cancelling a mission must not disarm the geofence - checkMissionSafety() and the
+            // live NFZ warning in updateDroneLocationOnMap() both depend on those polygons.
             mapView.invalidate()
         }
         if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) {
@@ -8307,15 +8787,23 @@ class MainActivity : AppCompatActivity() {
                     break
                 }
                 
-                if (::mqttService.isInitialized && mqttService.isConnected) {
+                // The C2 link is considered lost only when the MQTT broker connection itself
+                // has been down longer than LINK_LOSS_TIMEOUT_MS.
+                //
+                // It is deliberately NOT keyed on command inactivity: the protocol defines no
+                // periodic GCS heartbeat (see README.md / SERVER_API_DOCS.md), so an operator
+                // who simply issues no commands for 15s must not trigger a Go-Home.
+                if (::mqttService.isInitialized && hasEverConnectedToGcs) {
                     val now = System.currentTimeMillis()
-                    if (now - lastGcsHeartbeatTime > LINK_LOSS_TIMEOUT_MS) {
+                    if (mqttService.isConnected) {
+                        // Broker reachable -> link healthy. Re-arm the failsafe.
+                        lastGcsHeartbeatTime = now
+                        isLinkLossFailsafeTriggered = false
+                    } else if (now - lastGcsHeartbeatTime > LINK_LOSS_TIMEOUT_MS) {
                         if (!isLinkLossFailsafeTriggered) {
                             isLinkLossFailsafeTriggered = true
                             triggerLinkLossFailsafe()
                         }
-                    } else {
-                        isLinkLossFailsafeTriggered = false
                     }
                 }
             }
@@ -8325,11 +8813,16 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun triggerLinkLossFailsafe() {
-        // Signal Loss Action during Mapping Missions: Continue Autonomous Mapping Grid!
-        if (isMappingMissionRunning) {
+        // A KMZ mission runs on-board and continues without the GCS link, so let it finish
+        // rather than interrupting it with a Go-Home.
+        //
+        // This used to test isMappingMissionRunning, which was never assigned anywhere and so
+        // made the branch unreachable. isMissionExecuting is set by the KMZ execute-state
+        // listener (setupAutoRthForKmzMission) and by the Virtual-Stick loop.
+        if (isMissionExecuting) {
             runOnUiThread {
-                log("⚠️ Signal Lost during Mapping! Continuing autonomous mapping grid on-board...")
-                showToast("⚠️ Signal Lost! Continuing Mapping Grid autonomously...")
+                log("⚠️ GCS link lost during mission! Aircraft continues the on-board route.")
+                showToast("⚠️ GCS Link Lost! Mission continues autonomously...")
             }
             return
         }

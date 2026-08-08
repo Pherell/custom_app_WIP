@@ -17,9 +17,13 @@
     <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
     
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
-    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
+    <!-- WRITE_EXTERNAL_STORAGE has no effect from API 30; app media lives in
+         getExternalFilesDir(), which needs no permission at all. -->
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29" />
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
-    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"/>
+    <!-- MANAGE_EXTERNAL_STORAGE removed: nothing in the app needs all-files access, and it
+         is a Play Store publishing blocker. -->
+
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.READ_PHONE_STATE" />
 

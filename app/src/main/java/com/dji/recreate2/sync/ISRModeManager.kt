@@ -62,6 +62,16 @@ object ISRModeManager {
         // Clean up previous mode
         when (currentMode) {
             "MODE2" -> PostFlightS3Sync.disableAutoSync()
+            "MODE1" -> {
+                // Leaving Mode 1 must stop the tablet-side recorder, otherwise it keeps
+                // capturing frames (and holding the encoder) after the mode is off.
+                if (FpvStreamRecorder.isRecording()) {
+                    Log.d(TAG, "Leaving MODE1: stopping FPV stream recorder.")
+                    FpvStreamRecorder.stopRecording()
+                }
+                // Release any capture lock stranded by a callback that never fired.
+                isProcessingCapture.set(false)
+            }
         }
 
         currentMode = mode
@@ -172,7 +182,17 @@ object ISRModeManager {
                         it.fileName.endsWith(".dng", ignoreCase = true)
                     }
                     if (candidatePhotos.isNotEmpty()) {
-                        latestFile = candidatePhotos.last()
+                        // Select by highest fileIndex rather than trusting list order, which
+                        // the previous candidatePhotos.last() silently assumed.
+                        //
+                        // Deliberately NOT gated on MediaFile.date: that is a DateTime in the
+                        // camera's own wall clock (year/month/day/hour/min/sec), which cannot
+                        // be compared reliably against captureStartTime from the tablet clock
+                        // across timezone and drift. The retry loop above is what waits for
+                        // the indexer; captureStartTime is retained for diagnostics only.
+                        latestFile = candidatePhotos.maxByOrNull { it.fileIndex } ?: candidatePhotos.last()
+                        Log.d(TAG, "Selected ${latestFile?.fileName} (index ${latestFile?.fileIndex}) " +
+                                "on attempt $attempts, ${System.currentTimeMillis() - captureStartTime}ms after shutter.")
                     }
                 }
             }

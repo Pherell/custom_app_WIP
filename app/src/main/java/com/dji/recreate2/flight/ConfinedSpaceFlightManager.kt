@@ -8,6 +8,7 @@ import dji.sdk.keyvalue.value.flightcontroller.VerticalControlMode
 import dji.sdk.keyvalue.value.flightcontroller.YawControlMode
 import dji.v5.manager.aircraft.perception.PerceptionManager
 import dji.v5.manager.aircraft.perception.data.ObstacleAvoidanceType
+import dji.v5.manager.aircraft.perception.data.PerceptionDirection
 import dji.sdk.keyvalue.value.flightcontroller.VirtualStickFlightControlParam
 
 object ConfinedSpaceFlightManager {
@@ -84,13 +85,25 @@ object ConfinedSpaceFlightManager {
     fun applyPerceptionSettings() {
         try {
             val perceptionManager = PerceptionManager.getInstance()
-            if (isConfinedSpaceModeEnabled) {
-                // Set obstacle avoidance to BRAKE with tight distance threshold
-                perceptionManager.setObstacleAvoidanceType(ObstacleAvoidanceType.BRAKE, null)
-                Log.d(TAG, "PerceptionManager set to BRAKE with ${obstacleBrakeDistanceMeters}m threshold")
-            } else {
-                perceptionManager.setObstacleAvoidanceType(ObstacleAvoidanceType.BRAKE, null)
+            perceptionManager.setObstacleAvoidanceType(ObstacleAvoidanceType.BRAKE, null)
+
+            // Previously both branches did only the line above, so enabling Confined Space
+            // Mode changed nothing on the aircraft: obstacleBrakeDistanceMeters was persisted
+            // to SharedPreferences and never pushed to the SDK. Actually apply it now.
+            val brakeDist = obstacleBrakeDistanceMeters
+            val warnDist = (brakeDist * 2.0).coerceAtLeast(brakeDist + 0.5)
+
+            for (direction in listOf(
+                PerceptionDirection.HORIZONTAL,
+                PerceptionDirection.UPWARD,
+                PerceptionDirection.DOWNWARD
+            )) {
+                perceptionManager.setObstacleAvoidanceBrakingDistance(brakeDist, direction, null)
+                perceptionManager.setObstacleAvoidanceWarningDistance(warnDist, direction, null)
             }
+
+            Log.d(TAG, "PerceptionManager set to BRAKE (confinedSpace=$isConfinedSpaceModeEnabled, " +
+                    "brake=${brakeDist}m, warn=${warnDist}m)")
         } catch (e: Exception) {
             Log.w(TAG, "Could not apply perception settings: ${e.message}")
         }

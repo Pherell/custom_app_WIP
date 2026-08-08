@@ -27,6 +27,9 @@ object WaypointRouteManager {
     var activeRouteId: String = "route_1"
         private set
 
+    /** Monotonic route counter so generated names never collide after a deletion. */
+    private var routeCounter: Int = 1
+
     init {
         // Initialize default primary route: Waypoint_1
         routes.add(
@@ -56,7 +59,9 @@ object WaypointRouteManager {
      * Creates a new route profile (e.g. Waypoint_2) and sets it as active.
      */
     fun createNewRoute(customName: String? = null): WaypointRoute {
-        val routeNumber = routes.size + 1
+        // Monotonic counter, not routes.size + 1: after deleting route 2 of 3 the size-based
+        // name collided with the existing "Waypoint_3".
+        val routeNumber = ++routeCounter
         val name = customName ?: "Waypoint_$routeNumber"
         val id = "route_${System.currentTimeMillis()}"
 
@@ -84,14 +89,15 @@ object WaypointRouteManager {
      * Itemized route deletion: removes ONLY the specified route by ID.
      */
     fun deleteRoute(routeId: String): Boolean {
+        // Resolve the target FIRST. The old code short-circuited on routes.size <= 1 and
+        // cleared whatever the first route happened to be, even when routeId matched nothing.
+        val target = routes.find { it.id == routeId } ?: return false
+
         if (routes.size <= 1) {
-            // Keep at least 1 active route profile; clear its waypoints instead of destroying it
-            val last = routes.first()
-            last.waypoints.clear()
+            // Keep at least 1 route profile; clear its waypoints instead of destroying it.
+            target.waypoints.clear()
             return true
         }
-
-        val target = routes.find { it.id == routeId } ?: return false
         routes.remove(target)
 
         if (activeRouteId == routeId) {
@@ -133,5 +139,6 @@ object WaypointRouteManager {
             )
         )
         activeRouteId = "route_1"
+        routeCounter = 1
     }
 }
