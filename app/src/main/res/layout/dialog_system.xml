@@ -420,11 +420,10 @@
                     android:textColor="#FFFFFF"
                     android:background="@drawable/bg_telemetry_capsule"
                     android:paddingHorizontal="10dp"
-                    android:hint="https://streamer:Rahas!%402025@rtc.blackeye.id/api/webrtc?dst=dji-sdk-view-asli"
+                    android:hint="rtmp://host:1936/stream-name"
                     android:textColorHint="#666666"
                     android:inputType="textUri"
                     android:textSize="11sp"
-                    android:text="https://streamer:Rahas!%402025@rtc.blackeye.id/api/webrtc?dst=dji-sdk-view-asli"
                     android:layout_marginBottom="8dp"/>
 
                 <LinearLayout

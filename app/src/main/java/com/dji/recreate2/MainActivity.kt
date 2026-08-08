@@ -5715,9 +5715,18 @@ class MainActivity : AppCompatActivity() {
         val dBtnStopRtmp = dialog.findViewById<android.widget.Button>(R.id.btnStopRtmp)
         val dEtRtmpUrl = dialog.findViewById<android.widget.EditText>(R.id.etRtmpUrl)
 
-        val DEFAULT_WHIP_URL = "https://streamer:Rahas!%402025@rtc.blackeye.id/api/webrtc?dst=dji-sdk-view-asli"
-        val DEFAULT_RTSP_URL = "rtsp://streamer:Rahas!%402025@rtc.blackeye.id:8554/dji-sdk-view-asli"
-        val DEFAULT_RTMP_URL = "rtmp://rtc.blackeye.id:1936/dji-sdk-view-asli"
+        // Stream endpoint presets. Host and stream name are configurable per device; the
+        // credentials that used to be embedded here are NOT baked into the app any more - a
+        // password in source ships inside every APK and lands in git history, exactly like the
+        // S3 keys did. Set "streamHost"/"streamName" in TacticalHUDConfig to retarget, or just
+        // type a full URL (including credentials, if your server needs them) into the field.
+        // The RTMP push path strips inline auth regardless: see startRtmpStream().
+        val streamHost = sharedPrefs.getString("streamHost", "rtc.blackeye.id") ?: "rtc.blackeye.id"
+        val streamName = sharedPrefs.getString("streamName", "dji-sdk-view-asli") ?: "dji-sdk-view-asli"
+
+        val DEFAULT_WHIP_URL = "https://$streamHost/api/webrtc?dst=$streamName"
+        val DEFAULT_RTSP_URL = "rtsp://$streamHost:8554/$streamName"
+        val DEFAULT_RTMP_URL = "rtmp://$streamHost:$RTMP_PUSH_PORT/$streamName"
 
         dEtRtmpUrl?.setText(sharedPrefs.getString("rtmpUrl", DEFAULT_WHIP_URL))
 
@@ -5735,13 +5744,17 @@ class MainActivity : AppCompatActivity() {
         btnStreamModeWhip?.setOnClickListener {
             dEtRtmpUrl?.setText(DEFAULT_WHIP_URL)
             updateStreamModeButtons("WHIP")
-            showToast("Mode Selected: ⚡ WEBRTC WHIP (Sub-80ms)")
+            // Honest label: there is no WebRTC transport in this app. A WHIP/HTTP URL is
+            // mapped onto a hardware-encoded RTMP push against the same host - see
+            // startRtmpStream(). The old "⚡ WEBRTC WHIP (Sub-80ms)" text described the
+            // removed NativeWebRtcStreamManager, which never transmitted any media.
+            showToast("Mode Selected: WHIP URL → hardware RTMP push")
         }
 
         btnStreamModeRtsp?.setOnClickListener {
             dEtRtmpUrl?.setText(DEFAULT_RTSP_URL)
             updateStreamModeButtons("RTSP")
-            showToast("Mode Selected: 📡 RTSP UDP (<150ms)")
+            showToast("Mode Selected: 📡 RTSP")
         }
 
         btnStreamModeRtmp?.setOnClickListener {
