@@ -7873,25 +7873,53 @@ class MainActivity : AppCompatActivity() {
                 cleanUrl
             }
 
-            showToast("🚀 Starting Hardware RTMP Stream (TCP): $targetStreamUrl")
-            android.util.Log.i("KMZ_SysLog", "Optimized Hardware Stream Command Received: $targetStreamUrl")
+            val streamProtoLabel = if (targetStreamUrl.startsWith("rtsp://", ignoreCase = true)) "RTSP server" else "RTMP push (TCP)"
+            showToast("🚀 Starting Hardware $streamProtoLabel: $targetStreamUrl")
+            android.util.Log.i("KMZ_SysLog", "Optimized Hardware Stream Command Received [$streamProtoLabel]: $targetStreamUrl")
             
             val liveStreamManager = dji.v5.manager.datacenter.MediaDataCenter.getInstance().liveStreamManager
             
             if (liveStreamManager != null) {
-                val isRtspServerOnly = targetStreamUrl.equals("rtsp://", ignoreCase = true) || 
-                                       targetStreamUrl.startsWith("rtsp://:", ignoreCase = true) ||
-                                       (targetStreamUrl.startsWith("rtsp://", ignoreCase = true) && !targetStreamUrl.substring(7).contains("/"))
+                // DJI's RTSP mode is a SERVER: the aircraft hosts an RTSP endpoint that clients
+                // pull from. RtspSettings takes only port/user/password - there is no push-to-URL
+                // variant. So ANY rtsp:// URL must configure the server.
+                //
+                // The old predicate matched only a bare "rtsp://" or a host-less "rtsp://:port",
+                // so an ordinary "rtsp://host:8554/name" (which is exactly what the RTSP preset
+                // button produces) fell through to the else branch and was handed to
+                // RtmpSettings.setUrl() with LiveStreamType.RTMP - an rtsp:// URL configured as
+                // an RTMP push, which cannot work.
+                val isRtsp = targetStreamUrl.startsWith("rtsp://", ignoreCase = true)
 
-                val liveStreamConfig = if (isRtspServerOnly) {
-                    val portStr = targetStreamUrl.substringAfterLast(":").takeWhile { it.isDigit() }
-                    val port = portStr.toIntOrNull() ?: 8554
-                    val rtspSettings = dji.v5.manager.datacenter.livestream.settings.RtspSettings.Builder()
+                val liveStreamConfig = if (isRtsp) {
+                    // Port: parse from the authority ourselves. java.net.URI throws on a bare
+                    // "rtsp://" and returns -1 for the host-less "rtsp://:8554" form, so this
+                    // string scan is the reliable path.
+                    val authority = targetStreamUrl.substring(7).substringBefore("/")
+                    val port = authority.substringAfterLast(":", "")
+                        .takeWhile { it.isDigit() }
+                        .toIntOrNull() ?: 8554
+
+                    // Optional credentials from the userinfo component (URI decodes %XX for us).
+                    val userInfo = try {
+                        java.net.URI.create(targetStreamUrl).userInfo
+                    } catch (e: Exception) {
+                        null
+                    }
+
+                    val rtspBuilder = dji.v5.manager.datacenter.livestream.settings.RtspSettings.Builder()
                         .setPort(port)
-                        .build()
+                    if (!userInfo.isNullOrEmpty()) {
+                        val rtspUser = userInfo.substringBefore(":")
+                        val rtspPass = userInfo.substringAfter(":", "")
+                        if (rtspUser.isNotEmpty()) rtspBuilder.setUserName(rtspUser)
+                        if (rtspPass.isNotEmpty()) rtspBuilder.setPassWord(rtspPass)
+                    }
+
+                    log("RTSP server mode on port $port${if (!userInfo.isNullOrEmpty()) " (authenticated)" else ""}")
                     dji.v5.manager.datacenter.livestream.LiveStreamSettings.Builder()
                         .setLiveStreamType(dji.v5.manager.datacenter.livestream.LiveStreamType.RTSP)
-                        .setRtspSettings(rtspSettings)
+                        .setRtspSettings(rtspBuilder.build())
                         .build()
                 } else {
                     val rtmpSettings = dji.v5.manager.datacenter.livestream.settings.RtmpSettings.Builder()
