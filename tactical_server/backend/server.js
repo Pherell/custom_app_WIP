@@ -108,7 +108,7 @@ app.get('/api/trail/:droneId', async (req, res) => {
 // Wait for the MQTT bridge to connect before subscribing to config changes
 setTimeout(() => {
   if(mqttClient.connected) {
-    mqttClient.subscribe('avarell/fleet/config');
+    mqttClient.subscribe('dji-sdk/fleet/config');
   }
 }, 3000);
 
@@ -163,7 +163,7 @@ io.on('connection', (socket) => {
   socket.on('push_config', (configData) => {
     // Publish to MQTT to sync the entire fleet
     if (mqttClient.connected) {
-      mqttClient.publish('avarell/fleet/config', JSON.stringify(configData), { qos: 1 });
+      mqttClient.publish('dji-sdk/fleet/config', JSON.stringify(configData), { qos: 1 });
     }
     console.log('Config pushed to fleet:', configData);
   });

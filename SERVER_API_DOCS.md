@@ -14,16 +14,30 @@ gives the MQTT topics, the data schemas and the commands.
 Read this section before you write server code. The items below are not correct in the current
 build.
 
-### 0.1 The configuration topic does not agree
+### 0.1 The topic namespace is now the same in all components
 
-The application subscribes to `dji-sdk/fleet/config`. The server sends configuration data to
-`avarell/fleet/config` (`server.js:166`). The web interface also sends to `avarell/fleet/config`
-(`App.jsx:400`). The configuration push does not reach the aircraft.
+The `avarell/` topic namespace is deprecated. Do not use it. All components use `dji-sdk/fleet/`.
 
-The web interface simulator sends telemetry to `avarell/fleet/drone_sim_01/telemetry`. The server
-subscribes to `dji-sdk/fleet/+/telemetry`. The simulated aircraft does not show on the server.
+The correction of 2026-08-09 changed these positions:
 
-**Correction:** change the server and the web interface to `dji-sdk/fleet/config`.
+| File | Position | Old topic | New topic |
+|---|---|---|---|
+| `backend/server.js` | 111 | `avarell/fleet/config` | `dji-sdk/fleet/config` |
+| `backend/server.js` | 166 | `avarell/fleet/config` | `dji-sdk/fleet/config` |
+| `frontend/src/App.jsx` | 400 | `avarell/fleet/config` | `dji-sdk/fleet/config` |
+| `frontend/src/App.jsx` | 456 | `avarell/fleet/drone_sim_01/telemetry` | `dji-sdk/fleet/drone_sim_01/telemetry` |
+| `kmz_hub/kmz_hub.py` | 77 | `avarell/fleet/+/mission` | `dji-sdk/fleet/+/mission` |
+| `kmz_hub/kmz_hub.py` | 147, 166, 185 | `avarell/fleet/broadcast/command` | `dji-sdk/fleet/broadcast/command` |
+
+Before this correction the configuration push did not reach the aircraft. The simulated aircraft did
+not show on the server. The KMZ hub did not receive mission events and its commands did not reach
+the aircraft.
+
+**NOTE: The build output `frontend/dist/` still has the old topic. Build the web interface again
+with `npm run build` before you deploy it.**
+
+**NOTE: `MQTT_USERNAME=avarell` in the `.env` files is a broker user name. It is not a topic. Do not
+change it.**
 
 ### 0.2 No server sends PING
 

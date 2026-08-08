@@ -34,3 +34,7 @@ dist/
 **/dist/
 temp_aar/
 
+
+# Python bytecode
+__pycache__/
+*.pyc

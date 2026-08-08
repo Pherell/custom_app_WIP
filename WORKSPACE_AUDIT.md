@@ -138,17 +138,26 @@ not operate:
 - **Defect 3 (`ARVisionLandingManager.kt`):** No code made an instance of this class. The file is
   now deleted.
 
-Audit 1 also gave a status of RESOLVED to the MQTT topic defect. The correction is not complete:
+Audit 1 also gave a status of RESOLVED to the MQTT topic defect. The correction was not complete.
+The telemetry topic and the command topic were correct. Four other positions kept the deprecated
+`avarell/` namespace.
 
-| Topic | Application | Server | Web interface |
-|---|---|---|---|
-| Telemetry | `dji-sdk/fleet/` | `dji-sdk/fleet/` | `dji-sdk/fleet/` |
-| Command | `dji-sdk/fleet/` | `dji-sdk/fleet/` | `dji-sdk/fleet/` |
-| **Config** | `dji-sdk/fleet/config` | **`avarell/fleet/config`** | **`avarell/fleet/config`** |
-| **Simulator** | — | `dji-sdk/fleet/+/telemetry` | **`avarell/fleet/…/telemetry`** |
+The correction of 2026-08-09 completes this work. The `avarell/` namespace is deprecated. No
+component uses it now.
 
-The configuration push does not reach the aircraft. The simulated aircraft does not reach the
-server. This defect is open.
+| Topic | Application | Server | Web interface | KMZ hub |
+|---|---|---|---|---|
+| Telemetry | `dji-sdk/fleet/` | `dji-sdk/fleet/` | `dji-sdk/fleet/` | — |
+| Command | `dji-sdk/fleet/` | `dji-sdk/fleet/` | `dji-sdk/fleet/` | `dji-sdk/fleet/` |
+| Config | `dji-sdk/fleet/` | `dji-sdk/fleet/` | `dji-sdk/fleet/` | — |
+| Mission | `dji-sdk/fleet/` | — | `dji-sdk/fleet/` | `dji-sdk/fleet/` |
+
+Before the correction, the configuration push did not reach the aircraft, the simulated aircraft did
+not reach the server, and the KMZ hub could not send a command or receive a mission event.
+
+**NOTE: The web interface build output `frontend/dist/` still has the old topic. Build it again.**
+
+**NOTE: `MQTT_USERNAME=avarell` in the `.env` files is a broker user name. It is not a topic.**
 
 ---
 
@@ -161,7 +170,8 @@ These items need work outside the application source code:
    does not make them safe.
 2. **Change the stream password.** The password `streamer:Rahas!@2025` was in the source code and in
    `dialog_system.xml`. It is also in the Git history.
-3. **Correct the configuration topic.** Refer to Section 4.
+3. **Build the web interface again.** The output in `frontend/dist/` has the deprecated topic name.
+   Use `npm run build`.
 4. **Do a bench test.** The motor start, the WPML mission file and the virtual stick control values
    are not tested against an aircraft. Remove the propellers for this test.
 

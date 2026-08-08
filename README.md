@@ -308,9 +308,9 @@ Read these limits before you use the application for an operational task:
    pod geo-lock for a true target lock.
 3. **The GCS link failsafe uses the broker connection.** The application answers a `PING` command,
    but the server does not send `PING`. Refer to `SERVER_API_DOCS.md`.
-4. **The configuration topic does not agree across the system.** The application subscribes to
-   `dji-sdk/fleet/config`. The server sends to `avarell/fleet/config`.
-5. **The application does not encrypt the stored settings.**
+4. **The application does not encrypt the stored settings.**
+5. **The web interface build output is old.** Build it again with `npm run build` to get the
+   corrected topic names.
 
 ---
 
