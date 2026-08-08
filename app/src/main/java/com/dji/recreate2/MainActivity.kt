@@ -2394,11 +2394,18 @@ class MainActivity : AppCompatActivity() {
         val spd = executionWaypoints.firstOrNull()?.speed ?: 5.0
         
         showToast("Generating Native KMZ Mission...")
-        // Route-wide 1s interval photo only makes sense for a survey grid. Every waypoint in a
-        // committed grid carries the SET_GIMBAL,PHOTO action stamped by previewGridMission().
-        val isSurveyRun = executionWaypoints.isNotEmpty() &&
-                executionWaypoints.all { it.actionType.contains("PHOTO", ignoreCase = true) }
-        val kmzFile = KmzGenerator.generateMappingKmz(this, kmzWaypoints, spd, signalLossAction, intervalPhoto = isSurveyRun)
+        // Per-waypoint capture and the route-wide interval group are ALTERNATIVES, not additions.
+        // previewGridMission() places one waypoint per intended photo position and stamps each one
+        // with SET_GIMBAL,PHOTO, so the waypoints already do the capturing at exactly the planned
+        // overlap. Emitting the interval group as well photographs the whole route a second time.
+        // A mission whose waypoints carry PHOTO needs no interval group. A mission whose waypoints
+        // do not carry PHOTO is a transit and must not photograph at all. So the interval group is
+        // never correct here; it stays available in KmzGenerator for a caller that wants
+        // time-based capture instead of position-based capture.
+        val kmzFile = KmzGenerator.generateMappingKmz(
+            this, kmzWaypoints, spd, signalLossAction,
+            intervalPhoto = false
+        )
         if (kmzFile != null) {
             executeNativeKMZ(kmzFile.absolutePath, autoStart = true)
             return
