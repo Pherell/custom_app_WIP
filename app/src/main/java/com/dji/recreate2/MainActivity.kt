@@ -807,8 +807,14 @@ class MainActivity : AppCompatActivity() {
         
         // Setup UI Hide/Show Toggle
         val btnToggleUI = findViewById<TextView>(R.id.btnToggleUI)
-        val leftFlightControls = findViewById<View>(R.id.leftFlightControls)
-        val rightActionControls = findViewById<View>(R.id.rightActionControls)
+        // R.id.rightActionControls does not exist in activity_main.xml - the container was
+        // renamed to rightControlsContainer and this lookup was never updated. It returned
+        // null, and because findViewById<View> yields a platform type there was no null check
+        // at assignment, so the NPE landed on the first dereference: tapping btnToggleUI
+        // force-closed the app every time. Lookups are nullable now so a future rename
+        // degrades to "button does nothing" instead of a crash.
+        val leftFlightControls = findViewById<View?>(R.id.leftFlightControls)
+        val rightActionControls = findViewById<View?>(R.id.rightControlsContainer)
         
         hudToggleHideRunnable = Runnable {
             btnToggleUI.animate().alpha(0f).setDuration(500).start()
@@ -822,13 +828,13 @@ class MainActivity : AppCompatActivity() {
                 hudToggleHideHandler.postDelayed(it, 5000)
             }
             
-            if (leftFlightControls.visibility == View.VISIBLE) {
+            if (leftFlightControls?.visibility == View.VISIBLE) {
                 leftFlightControls.visibility = View.GONE
-                rightActionControls.visibility = View.GONE
+                rightActionControls?.visibility = View.GONE
                 btnToggleUI.setTextColor(android.graphics.Color.RED)
             } else {
-                leftFlightControls.visibility = View.VISIBLE
-                rightActionControls.visibility = View.VISIBLE
+                leftFlightControls?.visibility = View.VISIBLE
+                rightActionControls?.visibility = View.VISIBLE
                 btnToggleUI.setTextColor(android.graphics.Color.GREEN)
             }
         }
