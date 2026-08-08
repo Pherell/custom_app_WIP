@@ -1,192 +1,106 @@
 # Tactical Drone C2 Server Specification
 
-> **Changelog — 2026-08-07 (Native Android WebRTC Engine, Single-Publisher Stream & Adaptive Bitrate Scaling)**
-> - **Native Android WebRTC Engine (`NativeWebRtcStreamManager.kt`):** Implemented native WebRTC WHIP streaming fed directly by DJI `ICameraStreamManager` NV21 camera frames, using DJI's built-in native MRTC C++ libraries (`libmrtc_core.so`, `libmrtc_core_jni.so`).
-> - **Single-Publisher Stream Cleanliness:** Eliminated dual-publisher collision on `go2rtc` stream endpoints by routing live camera hardware encoding cleanly to `rtmp://rtc.blackeye.id:1936/dji-sdk-view-asli` or WHIP, ensuring 100% smooth 30 FPS playback in browsers (`https://rtc.blackeye.id/stream.html?src=dji-sdk-view-asli`).
-> - **Adaptive Bitrate Scaling (`LiveVideoBitrateMode.AUTO`):** Configured `LiveVideoBitrateMode.AUTO` per DJI MSDK V5 Issue #640 research, enabling `ILiveStreamManager` to scale bitrate dynamically based on real-time network conditions.
->
-> **Changelog — 2026-08-07 (Camera Tracking State Machine, Mutual Exclusion & MSDK Command Throttling)**
-> - **Unified Camera Tracking State Machine (`stopAllCameraTracking`):** Combined Optical Object Tracking and TGP Line-of-Sight Geo-Lock into a mutually exclusive control state machine. Activating TGP Geo-Lock automatically releases optical tracking, and vice-versa.
-> - **MSDK Command Bus Throttling:** Added angle delta check ($\Delta > 0.1^\circ$) in `toggleTargetingPodLock`, reducing MSDK bus transactions by ~80% during static hovering.
-> - **Nadir Gimbal Protection:** Freezes yaw angle when pointing straight down (horizontal distance $< 3\text{m}$ or pitch $\le -85^\circ$), protecting gimbal motors from $180^\circ$ yaw flipping.
->
-> **Changelog — 2026-08-06 (Gimbal Hardware Overload Protection, Dynamic Box Centering & OBJ Gesture Toggle)**
-> - **Gimbal Hardware Motor Protection near Nadir (`toggleTargetingPodLock`):** When the camera points straight down (pitch $\le -85^\circ$ or horizontal distance $< 3\text{m}$), gimbal yaw rotation is frozen (`finalYaw = gimbalYaw`) to prevent $180^\circ$ yaw flipping and mechanical motor damage. Pitch is safely clamped between $-88^\circ \dots +25^\circ$.
-> - **Dynamic Bounding Box Frame Convergence (`startOpticalObjectTracking`):** As the gimbal turns toward an off-center target, the bounding box automatically shifts back toward screen center $(0.5, 0.5)$ proportional to FOV angular displacement. Once centered, PID speeds drop to `0.0`, preventing uncontrolled gimbal spinning.
-> - **`OBJ` HUD Button & Gesture Mode (`btnToggleObjectTouch`):** Added **`OBJ`** HUD button directly below **`TAG`**. When **`OBJ`** is OFF (default), touches pass through to camera pinch-to-zoom and swipe gestures. When **`OBJ`** is ON, touch/drag draws bounding boxes for optical object lock.
->
-> **Changelog — 2026-08-06 (STE-100 UI Layout Organization & Thread-Safety Bug Remediation)**
-> - **Unified 2-Column HUD Layout (`activity_main.xml`):** Reconstructed the right HUD button panel into a balanced, perfectly aligned 2-column side-by-side grid (`Column 1: GMB, RES, DEL, FOL, LCK, TAG` [32dp Circular] & `Column 2: LRF, IMG, REC, STK, ACK, SYS` [44dp Glass Pill]). Eliminates all layout gaps and misalignment.
-> - **MSDK V5 Thread Safety Enforcement (`MainActivity.kt`):** Wrapped background tracking loop SDK calls (`KeyManager.getInstance().performAction`) and map marker overlay updates (`updateGpsTagsOnMap`) inside `runOnUiThread { ... }` per STE-100 guardrail rules.
-> - **Tag ID Collision Fix (`GpsTaggingManager.kt`):** Updated tag ID generator to calculate `maxNum + 1` from existing integer suffixes, preventing ID collisions when tags are deleted.
->
-> **Changelog — 2026-08-06 (TAG Circular HUD Button for Target Geolocation Tagging)**
-> - **`TAG` Circular HUD Button:** Added circular **`TAG`** button directly below **`LCK`** on the main FPV layout. Pressing **`TAG`** instantly tags the current LRF ground target or drone GPS coordinate, stores it in `GpsTaggingManager`, and draws a **Yellow POI Marker Pin** (`#FFFF00`) on the strategy map.
-> - **GPS Target Intel Tab inside System Settings:** Positioned the GPS Target Intel dialog launcher inside System Config (`btnGpsTagsConfig`: `📍 GPS TARGET INTEL & TAGS`).
->
-> **Changelog — 2026-08-06 (Military-Grade Targeting Pod Line-of-Sight Geo-Lock & Tagging Engine)**
-> - **Targeting Pod Line-of-Sight Geo-Lock (`toggleTargetingPodLock`):** Implemented military-style Targeting Pod (TGP) Geo-Lock engine. Calculates real-time ground raycast intersection $(\text{Lat}_t, \text{Lon}_t, \text{Alt}_t)$ and runs a 10Hz 3D vector gimbal angle rotation loop (`dji.sdk.keyvalue.key.GimbalKey.KeyRotateByAngle`). Camera remains **100% locked onto the physical ground coordinate** as the drone maneuvers, turns, or flies.
-> - **Tactical HUD Controls & Tagging (`LCK`):** Added circular HUD quick-action button **`LCK`** (Targeting Pod Lock/Unlock) on the main FPV layout. Pressing **`LCK`** toggles LOS Geo-Lock on current camera pointing angle or specified target coordinate.
-> - **Remote C2 Commands:** Added C2 JSON command handlers over `dji-sdk/fleet/{clientId}/command`: `TGP_LOCK`, `TARGET_POD_LOCK`, `TAG_GEO_POINT` (with optional payload `{"latitude": 37.7749, "longitude": -122.4194}`) and `UNLOCK_TGP`, `UNLOCK_POD`.
->
-> **Changelog — 2026-08-06 (Real Optical Object Tracking & LOCK: OBJECT / HUMAN Label Formatting)**
-> - **Real Optical Bounding Box Coordinates:** Removed artificial drift/centering logic; target bounding box stays locked to exact real optical touch/drag or AI bounding box coordinates (`x_min, y_min, x_max, y_max`).
-> - **Clean Label Formatting & Smaller Font Size:** Updated on-screen bounding box label to `LOCK: OBJECT / HUMAN` using a crisp `20sp` font size without emoji indicators.
->
-> **Changelog — 2026-08-06 (DEL & FOL Tactical HUD Buttons for Object Selection & Follow)**
-> - **Tactical HUD Controls (`DEL` & `FOL`):** Added circular HUD quick-action buttons below **RES** (Reset Zoom) on the main FPV layout:
->   - **`DEL` (Delete Selection / Unlock):** Clears active target bounding box overlay and releases optical tracking.
->   - **`FOL` (Follow Object / Activate Tracking):** Activates / toggles autonomous object following & gimbal PID centering on the target object (or locks center-screen object if none selected).
->
-> **Changelog — 2026-08-06 (External AI Vision C2 MQTT API for Remote Lock, Focus & Follow)**
-> - **External AI Computer Vision Control over MQTT:** Enabled external AI agents (YOLO, MediaPipe, OpenCV, Ground Station AI) reading the RTMP stream to remotely lock, focus, and follow detected objects (humans, cars, boats, security targets) in real-time.
-> - **New C2 Commands:**
->   - **`TRACK_OBJECT` / `LOCK_OBJECT` / `OBJECT_FOLLOW` / `AI_TRACK`:** Locks optical target tracking on normalized bounding box `{"x_min": 0.4, "y_min": 0.3, "x_max": 0.6, "y_max": 0.7}` or target center `{"norm_x": 0.5, "norm_y": 0.5}`, triggering 20Hz PID gimbal speed tracking and hardware lens focus simultaneously.
->   - **`FOCUS_OBJECT` / `TAP_TO_FOCUS` / `AUTO_FOCUS`:** Triggers multi-lens hardware focus across Zoom & Wide camera lenses on AI normalized coordinates `{"norm_x": 0.45, "norm_y": 0.35}`.
->   - **`STOP_TRACKING` / `UNLOCK_OBJECT` / `CANCEL_FOLLOW`:** Clears AI object tracking overlay and releases gimbal control.
->
-> **Changelog — 2026-08-06 (Touch-and-Drag Optical Object Lock & Target Tracking Engine)**
-> - **Tactical Object Tracking Overlay (`ObjectTrackingOverlayView.kt`):** Implemented touch-and-drag bounding box selection and single-tap quick object locking on live camera feed for security missions (humans, vehicles, intruders, animals). Renders tactical green corner reticles and status label overlays.
-> - **Closed-Loop Proportional Gimbal Speed Centering (`startOpticalObjectTracking`):** Runs a 20Hz PID control feedback loop calculating target offset $(\Delta x, \Delta y)$ from optical center and sending proportional angular velocity commands (`KeyRotateBySpeed`) to keep the target centered in optical crosshairs.
-> - **Remote C2 MQTT Commands:** Added C2 JSON command handlers over `dji-sdk/fleet/{clientId}/command`: `TRACK_OBJECT`, `LOCK_TARGET`, `LOCK_OBJECT` (with payload `{"x_min": 0.3, "y_min": 0.2, "x_max": 0.7, "y_max": 0.8}`) and `STOP_TRACKING`, `UNLOCK_TARGET`, `UNLOCK_OBJECT`.
->
-> **Changelog — 2026-08-06 (Unlimited Distance Limitation Control & C2 Overrides)**
-> - **Unlimited Distance Control (`setDistanceLimitation`):** Implemented distance limitation bypass engine (`dji.sdk.keyvalue.key.FlightControllerKey.KeyDistanceLimitEnabled` and `KeyDistanceLimit`). Allows switching flight radius mode between **UNLIMITED (NO LIMITATION)** and custom distance limits (e.g. 50,000m).
-> **Changelog — 2026-08-07 (WHIP WebRTC Direct Push & Multi-Protocol Relay Engine)**
-> - **WHIP WebRTC Direct Push Engine (`WhipWebRtcManager`):** Added native WHIP (WebRTC HTTP Ingestion Protocol) direct push engine supporting sub-80ms real-time video transmission (`http://host:1984/api/whip?src=...`) to `go2rtc`, `MediaMTX`, and `SRS`.
-> - **Multi-Protocol Relay Selection (RTMP / RTSP / WHIP WebRTC):** Automatically detects stream protocol via URL prefix (`http://`, `https://`, `rtsp://`, `rtmp://`) or C2 MQTT commands.
-> - **Expanded C2 WHIP Commands:** Added MQTT command aliases over `dji-sdk/fleet/{clientId}/command`: `START_WHIP`, `WHIP_START`, `STOP_WHIP`, and `WHIP_STOP` with payload `{"url": "http://10.12.0.15:1984/api/whip?src=dji-sdk-view-asli"}`.
->
-> **Changelog — 2026-08-07 (High-Performance FPV Live Streaming Optimization & RTSP Dual Protocol)**
-> - **Dual Protocol RTSP & RTMP Support (`startRtmpStream`):** Added native support for RTSP UDP low-latency streaming (`rtsp://host:port`) and RTMP streaming (`rtmp://...`) over `START_STREAM`, `START_RTMP`, `SET_STREAM`, and `STREAM_START` C2 MQTT commands.
-> - **30 FPS Stream Quality Optimization (`StreamQuality.HD` & `LiveVideoBitrateMode.AUTO`):** Explicitly configured DJI MSDK V5 `liveStreamQuality = StreamQuality.HD` (720p @ 30 FPS) and `liveVideoBitrateMode = LiveVideoBitrateMode.AUTO`, eliminating packet buffer lag and preventing RTMP throttling to 10 FPS.
-> - **Live Stream Telemetry & Status Monitoring (`LiveStreamStatusListener`):** Attached real-time `LiveStreamStatusListener` observing live stream FPS, bitrate, and error events to ensure continuous high-reliability transmission.
->
-> **Changelog — 2026-08-06 (Belly Landing Lamp & Situational LED Blinking Engine)**
-> - **Bottom Auxiliary / Belly Lamp Control (`setBellyLamp`):** Added explicit toggle control for the bottom landing lamp below the drone (`dji.sdk.keyvalue.value.flightcontroller.LEDsSettings`). Controlled via System Dialog button (`btnBellyLamp`) and MQTT commands (`SET_BELLY_LAMP`, `BELLY_LAMP_ON`, `BELLY_LAMP_OFF`).
-> - **Situational LED Blinking Engine (`updateSituationLighting`):** Automatically switches drone LED lighting states based on flight conditions:
->   - **Emergency / Low Battery (< 25%):** Rapid warning flash (0.35s toggle interval).
->   - **Takeoff / Landing:** Caution flash (0.50s toggle interval) to alert ground personnel.
->   - **Stealth Mode Active:** All LEDs and lamps completely OFF.
->   - **Normal Flight:** Solid LEDs ON with user belly lamp preference.
->
-> **Changelog — 2026-08-06 (Media File Pull Fix & Fallback Pipeline)**
-> - **Resolved `get media files failed` Error:** Fixed MSDK V5 `pullMediaFileListFromCamera` failure by setting `count(-1)` parameter in `PullMediaFileListParam.Builder()`.
-> - **Automatic Parameter Fallback Retry Pipeline:** If the primary full file list query fails, automatically retries with a default parameter builder (`PullMediaFileListParam.Builder().build()`) to guarantee media list extraction across all DJI Enterprise drone storage types (SD Card & Internal Storage).
->
-> **Changelog — 2026-08-06 (Low-Latency Video Stream Optimization & Remote C2 Commands)**
-> - **Hardware FPV Rendering Optimization (`bindVideoStream`):** Enforced zero-copy hardware surface formatting (`PixelFormat.TRANSLUCENT`) and direct GPU scaling (`ScaleType.CENTER_CROP`) on the tablet FPV feed, eliminating rendering stutter and CPU decoding lag.
-> - **High-Quality Low-Latency RTMP Stream Pipeline (`startRtmpStream`):** Configured direct H.264 hardware encoder passthrough from the primary camera lens (`ComponentIndexType.LEFT_OR_MAIN`), delivering ultra-smooth 1080p video streams with minimal network buffering latency.
-> - **Expanded C2 MQTT Stream Commands:** Supported C2 JSON command aliases over `dji-sdk/fleet/{clientId}/command`: `START_STREAM`, `START_RTMP`, `SET_STREAM`, `STREAM_START` (with payload `{"url": "rtmp://..."}` or `{"rtmp_url": "..."}`), and `STOP_STREAM`, `STOP_RTMP`, `STREAM_STOP`.
->
-> **Changelog — 2026-08-06 (Touch-to-Focus Object Lock & Stealth Mode LED Control)**
-> - **Multi-Lens Touch-to-Focus (`triggerTapToFocus`):** Tapping anywhere on the live video stream calculates normalized $(x, y)$ coordinates and sends target focus commands across Zoom lens (`CAMERA_LENS_ZOOM`), Wide lens (`CAMERA_LENS_WIDE`), and general CameraFocusTarget key, showing an animated green target reticle ring on the touched object.
-> - **Stealth Mode (`toggleStealthMode`):** Added a tactical **Stealth Mode** toggle button (`btnStealthMode`) in System Dialog and C2 MQTT command (`STEALTH_MODE`, `STEALTH_ON`, `STEALTH_OFF`, `LIGHTS_OFF`, `LIGHTS_ON`). Simultaneously turns OFF/ON all Front Arm LEDs, Rear Arm LEDs, Flight Status Indicators, Navigation Lights, and Auxiliary Lights (`LEDsSettings(false, false, false, false)`).
->
-> **Changelog — 2026-08-06 (High-Precision 3D AR Projection & IMU/VPS Dead Reckoning Navigation)**
-> - **High-Precision 3D AR Pinhole Perspective Projection (`ARLandingOverlayView`):** Replaced linear angular subtraction with exact 3D camera transformation matrix (Body to Camera Frame) and pinhole perspective projection ($f_x = \frac{W}{2 \tan(\text{HFOV}/2)}$, $f_y = \frac{H}{2 \tan(\text{VFOV}/2)}$). Completely eliminates visual drift and random position jumping.
-> - **Low-Pass Exponential Moving Average (EMA) Temporal Filter:** Integrated real-time EMA low-pass filtering ($\alpha = 0.20$) on projected screen coordinates and target distance to smooth out sensor noise and prevent overlay jittering.
-> - **IMU + VPS Dead Reckoning Navigation Engine (`KeyAircraftVelocity`):** When GPS signal drops mid-flight (satellites $< 6$ or GPS loss), the system seamlessly switches to Dead Reckoning (DR) navigation using the drone's 3D IMU velocity vectors ($V_x, V_y, V_z$), downward Vision Positioning System (VPS), and barometric height sensors. Extrapolates WGS-84 geodesic latitude, longitude, and altitude until satellite lock is restored.
->
-> **Changelog — 2026-08-06 (ISR Mode 1 Clean FPV Stream Recording, .SRT Telemetry & EXIF Mapping Metadata)**
-> - **Clean Raw FPV Video Stream Recording (`FpvStreamRecorder`):** ISR Mode 1 records raw FPV camera feed directly on tablet with zero HUD overlays, buttons, or telemetry text. Uploads `.mp4` video to S3 immediately upon pressing stop.
-> - **Toggleable Reticle Target Box & Compass Tape Overlays:** Added toggle buttons `btnToggleReticleOverlay` and `btnToggleCompassOverlay` in ISR Mode 1 settings. Allows user to toggle Target Reticle Box (green square) and top Compass Tape ON/OFF independently for both recording and streaming while keeping all non-tactical HUD UI (buttons/menus) excluded.
-> - **Companion `.SRT` Telemetry Subtitles:** Generates live 1-second telemetry samples (GPS Lat, Lon, Alt, Speed, Heading/Yaw, Gimbal Pitch, Satellites, Battery) and exports standard SubRip `.srt` subtitle file alongside the `.mp4` video, uploading both to Ceph S3 automatically.
-> - **EXIF Mapping & Photogrammetry Metadata Injection (`injectExifMetadata`):** Automatically injects standard GPS Latitude, Longitude, Altitude, Timestamp, and Drone Telemetry EXIF tags into every Mode 1 JPEG photo before S3 upload for WebODM, Pix4D, QGIS, and ArcGIS compatibility.
-> - **SigV4 GET Request Signing Fix (`S3UploadManager`):** Fixed S3 ListObjects GET request signing bugs (HTTP method, canonical query string encoding, and empty payload hash) resolving HTTP 403 Forbidden errors when listing remote S3 folders.
-> - **ISR Mode 2 Speed Optimization & Real-time SD Download Progress (`PostFlightS3Sync`):** Wired `onProgress` callback reporting live percentage and MB status (`[1/5] SD Download: IMG_0001.JPG (45% - 18MB / 40MB)`). Enabled parallel S3 upload pipelining while subsequent files download from drone SD card.
-> - **ISR Mode 2 Landed State Sync Fix & Manual Sync Button (`btnIsrMode2SyncNow`):** Resolved issue where Mode 2 required motors to spin ON->OFF to trigger. If drone is already landed (motors OFF) when Mode 2 is enabled, sync fires immediately. Added explicit `🔄 SYNC NOW` button in System Dialog to force manual Mode 2 sync anytime.
-> - **Simplified MQTT JSON Command Syntax (`command: "photo" / "start" / "stop"` & `isr_mode: 1 / 2 / 0`):** Supported short & clean JSON payload structures like `{"command": "photo"}`, `{"command": "start"}`, `{"command": "stop"}`, and top-level `{"isr_mode": 1}` or `{"isr_mode": 2}`.
-> - **MQTT ISR Photo Capture & Sync Commands (`ISR_CAPTURE`, `TAKE_PHOTO`, `PHOTO_CAPTURE`, `CAPTURE`, `ISR_SYNC`):** Added complete command alias suite over MQTT (`dji-sdk/fleet/{clientId}/command`).
-> - **Circular Zoom Reset Button (`RES`) & Tap-To-Focus FPV Overlay:** Added circular green `RES` button directly below `GMB` in the HUD button stack to instantly reset camera zoom to 1.0x. Tapping anywhere on the FPV stream now triggers target focus at normalized `(x, y)` coordinates with animated green target ring UI.
-> - **Mode 1 & Mode 2 Local Storage Fallback (`saveToLocalStorage`):** Preserves all Mode 1 captured photos/videos and Mode 2 SD sync files directly in designated tablet local storage (`Pictures/ISR_Local_Storage` or custom SAF folder) even if Ceph S3 server is offline or unreachable.
->
-> - **GPS-Denied Indoor Flight Engine (`SET_GPS_DENIED_MODE`):** Bypasses pre-flight satellite count requirements (`< 10 sats`), utilizing Downward Vision Positioning System (VPS), IMU, and TOF altitude sensors for indoor/subterranean/air-gapped flight.
-> - **Virtual Stick `BODY` Frame Navigation:** Automatically switches Virtual Stick roll/pitch coordinate system from `GROUND` to `BODY` (Forward/Right relative to aircraft nose) when GPS-Denied mode is active.
-> - **Confined Space Obstacle Avoidance Tuning (`SET_CONFINED_SPACE_MODE`):** Tunes PerceptionManager obstacle avoidance brake distance down to **1.0m – 1.5m** (from 10.0m default) for narrow doorways and corridor navigation.
->
-> **Changelog — 2026-08-06 (MQTT Drone Tasking Engine, Queueing, Cancellation & S3 Upload Status Events)**
-> - **MQTT Drone Tasking Engine (`START_TASK`, `QUEUE_TASK`, `CANCEL_TASK`, `CANCEL_ALL_TASKS`, `CLEAR_TASK_QUEUE`):** Integrated full C2 task lifecycle management. Supports string task identifiers (`task_id_101`), sequential task queueing (`ConcurrentLinkedQueue`), and task cancellation.
-> - **Auto-Generated Task Storage Folders:** Task assignment automatically auto-generates matching local device download directory (`Pictures/{taskId}`) and Ceph S3 target subfolder (`http://192.168.180.99:8000/data-primary/drone/isr_tasking/captured/{taskId}/`) with `.keep` marker objects.
-> - **Real-time Telemetry & S3 Upload Event Broadcasts:** Injected `"taskId"` and `"queuedTasksCount"` into 10 Hz real-time telemetry. Added structured S3 upload events (`UPLOAD_START`, `UPLOAD_SUCCESS`, `UPLOAD_FAILED`) and critical HUD alerts (`HTTP 403 S3 Auth Error`, `S3 Endpoint Unreachable`).
->
-> **Changelog — 2026-08-06 (MQTT Remote S3 & Folder Creation Commands)**
-> - **MQTT Remote Folder Creation (`CREATE_FOLDER`):** Added C2 command `CREATE_FOLDER` / `CREATE_S3_FOLDER` to explicitly create local download directories and Ceph S3 remote storage subfolders (`.keep` marker object) over MQTT (`dji-sdk/fleet/{clientId}/command`).
-> - **MQTT Remote Storage Config (`SET_S3_CONFIG`):** Enabled updating S3 Endpoint URL, Access Key, Secret Key, Region, S3 Target Subfolder (`AUTO` vs `CUSTOM`), Local Download Folder, and ISR Mode (`MODE1`, `MODE2`, `NONE`) dynamically over MQTT.
-> - **BT-Prod S3 Storage Endpoint & Credentials:** Updated default S3 endpoint to `http://192.168.180.99:8000/data-primary/drone/isr_tasking/captured` under `data-primary` bucket with region `BT` and user `dji-sdk`.
-> - **AWS SigV4 HMAC-SHA256 Signing:** Integrated native AWS Signature Version 4 HMAC-SHA256 request signing in `S3UploadManager.kt` using configured Access Key (`0RUUD1YOR1DLRQN2WF7H`) and Secret Key (`hfGxYhmhBjNL41NUecqyGev5a77H29JfO0DAEkBs`).
->
-> **Changelog — 2026-08-06 (MQTT Multi-Route Commands, Clear Isolation, ISR Modes, S3 Storage & ATAK UI)**
-> - **Multi-Route C2 Commands & Selective Route Management:** Added `CREATE_ROUTE`, `SELECT_ROUTE`, `DELETE_ROUTE`, `TOGGLE_ROUTE_VISIBILITY`, and `EXECUTE_ROUTE` for itemized multi-route control (`Waypoint_1`, `Waypoint_2`, etc.) over MQTT.
-> - **Clear Map vs Clear KMZ Isolation:** Standardized `CLEAR_MAP` (Master clear resetting all map overlays and queues) vs `CLEAR_KMZ` (isolated KMZ route removal preserving user tactical waypoints).
-> - **MQTT Connection & URI Sanitization:** Hardened `MqttService.kt` and `MainActivity.kt` URI parsing. Automatically strips duplicate protocol prefixes (e.g. `tcp://tcp://`) and handles `ssl://`, `ws://`, `wss://` cleanly.
-> - **Detailed MQTT Error Reporting:** Added `onErrorOccurred` callback in `MqttService.kt` wired directly to `MainActivity.kt` UI toasts and system log for instant diagnostic feedback.
-> - **Unified SharedPreferences:** Standardized `SharedPreferences` access (`"TacticalHUDConfig"`, `MODE_PRIVATE`) across `MainActivity` and `MqttService` to eliminate credential reading mismatches.
-> - **ISR Modes & S3 Integration:** Bound `btnIsrModeToggle`, `etS3ServerUrl`, and `btnTriggerS3Sync` in `dialog_system.xml` and `MainActivity.kt`. Integrated `S3UploadManager.kt` supporting custom endpoints (`http://192.168.180.99:8000/data-primary/drone/isr_tasking/captured`), ISR Mode 1 (High-Res S3 Direct Stream), and ISR Mode 2 (Post-Flight Auto Sync on Land).
-> - **ATAK UI & OSD Reticle Rework:** Redesigned UI reticle to Option A: Military UAV OSD Boresight crosshair with milliradian tick marks and center precision dot. Modernized System Settings, Mapping, WebODM, and Waypoint dialogs with ATAK dark-glass card layouts (`bg_atak_panel`).
->
-> **Changelog — 2026-07-28 (Audit #16 Topic Namespace Standardization & AR Thread Safety)**
-> - Standardized backend (`server.js`) and frontend web UI (`App.jsx`) MQTT topic subscriptions and command publishing strictly to the `dji-sdk/fleet/` namespace (eliminating legacy `avarell/fleet/` and `tactical/fleet/` mismatches).
-> - Hardened thread safety in `ARLandingOverlayView.kt` by replacing `invalidate()` with `postInvalidate()` to prevent `CalledFromWrongThreadException` crashes when invoked from background telemetry/vision threads.
-> - Ensured `ARVisionLandingManager.kt` UI callback dispatches run safely on `Handler(Looper.getMainLooper())`.
->
-> **Changelog — 2026-07-21 (Audit #15 Waypoint & Storage Hardening)**
-> - Fixed Virtual Stick fallback execution to use the orbit-expanded waypoints list instead of raw unexpanded tacticalWaypoints.
-> - Avoided concurrent mutation and visual flickering of the main tacticalWaypoints list on background flight threads by utilizing a dedicated execution queue copy.
-> - Standardized the KMZ generator turn damping distance formatter with `java.util.Locale.US` to prevent parser failures under international locales.
-> - Resolved local storage leaks in the WebODM auto-upload module by ensuring temporary compressed images are cleared on sync failures or exceptions.
->
-> **Changelog — 2026-07-20 (Arm/Disarm Safety Checks & LED Blink)**
-> - Replaced physical Virtual Stick CSC sequence for `ARM` / `START_ENGINE` with pre-flight connection, battery (min 20%), compass, and device health checks, followed by blinking the LEDs twice to indicate a successful virtual arm state.
-> - Modified `DISARM` to set the engine state to inactive instantly and update UI status indicator.
->
-> **Changelog — 2026-07-20 (Audit #12 Security, Safety, & Reliability Hardening)**
-> - **M-10 (Critical):** Fixed MQTT service executor shutdown by separating `disconnect()` from a new `destroy()` method. Executor is kept alive across reconnect/disconnect events, and shut down only in `MainActivity.onDestroy()`.
-> - **H-09 (High):** Added connection-loss checks in the Virtual Stick control loop. Loop aborts automatically if connection is lost.
-> - **H-10 (High):** Wired geofencing alerts (`alertBlock`) to real-time location overlays. HUD warning triggers when entering designated No-Fly Zones.
-> - **M-11 (Medium):** Replaced mock pairing button on Home screen with actual remote controller pairing flow.
-> - **L-09 (Low):** Cleaned up unused and unassigned `tacticalZonePolygon` field.
-> - **L-10 (Low):** Cleaned up legacy and concept resources (`MainActivity_new.kt`, `TestRtmp.kt`, etc.).
->
-> **Critical (C):**
-> - **C-01:** All DJI SDK `performAction` calls inside the Virtual Stick background loop are now wrapped in `runOnUiThread`.
-> - **C-02:** `executeTacticalMission` now uses a separate `executionWaypoints` list — the UI `tacticalWaypoints` list is no longer mutated during flight.
-> - **C-03:** `expandOrbitWaypoints` now checks `movementMethod == "orbit"` (was checking the wrong field `actionType`).
-> - **C-04:** Signal-loss RTH now requires `&& isFlying` guard — cannot trigger on ground.
->
-> **High (H):**
-> - **H-01:** `handleMqttCommand` no longer runs fully on the UI thread — only explicit UI calls use `runOnUiThread`.
-> - **H-02:** `START_ENGINE` `COMPLETED` receipt is published after the CSC sequence finishes, not before.
-> - **H-03:** `messageArrived` offloads to executor thread to avoid blocking Paho internals.
-> - **H-04:** `updateFlightPathLine` debounced to 500ms (max 2 Hz) from 10 Hz.
-> - **H-05:** `orbitCircleOverlays` changed to `CopyOnWriteArrayList`.
-> - **H-06:** Log scroll operator precedence fixed.
-> - **H-07:** Pre-flight battery/GPS fallback changed from `100/15` to `0/0` (fail-safe).
-> - **H-08:** `executor.shutdown()` called in `MqttService.disconnect()`.
->
-> **Medium (M):**
-> - **M-01:** Orbit button WPs now have `movementMethod = "orbit"` set correctly.
-> - **M-02:** VS mission loop thread named `"VS-MissionLoop"`.
-> - **M-03:** (Pre-existing CopyOnWriteArrayList on `tacticalWaypoints`).
-> - **M-04:** `cancelActiveMission()` clears orbit circle overlays.
-> - **M-05:** `drawKmzRouteOnMap` excludes `flightPathPolyline` and orbit overlays.
-> - **M-06:** `isPointInPolygon` now uses native Spherical Mercator Math projection to eliminate polar distortion and safely handle complex concave shapes, rather than raw planar lat/lon ray-casting.
-> - **M-07:** Takeoff wait thread stored and interrupted in `onDestroy`.
-> - **M-08:** `MqttService.connect()` cancels previous `connectFuture` before starting new one.
-> - **M-09:** Grid preview recalculation debounced 300ms.
->
-> **Low (L):**
-> - **L-01:** Removed deprecated `package` attribute from `AndroidManifest.xml`.
-> - **L-02 (Deferred):** Lens buttons (Wide/Zoom/IR) remain stubs. DJI SDK V5 uses a different VideoStream source API than V4 (`CameraKey.KeyCameraStreamSource` is unresolved).
-> - **L-03:** AR home point uses `cameraFov` field instead of hardcoded `84.0`.
-> - **L-04:** `logHistory` changed to thread-safe `StringBuffer`.
-> - **L-05:** `droneClickCount` reset is guaranteed in all code paths.
-> - **L-06:** `setBuiltInZoomControls` → `zoomController.setVisibility`.
-> - **L-07:** `polygon.points` → `polygon.actualPoints`.
-> - **L-08:** MQTT credentials now stored in `EncryptedSharedPreferences` (AES256-GCM).
+> **Language standard:** ASD-STE100 Simplified Technical English.
+> **Applies to:** branch `fix/critical-flight-safety-and-c2-defects`.
+> **Last change:** 2026-08-09.
+
+This document gives the interface between the Recreate2 Android application and the C2 server. It
+gives the MQTT topics, the data schemas and the commands.
 
 ---
 
+## 0. Status and open items
+
+Read this section before you write server code. The items below are not correct in the current
+build.
+
+### 0.1 The configuration topic does not agree
+
+The application subscribes to `dji-sdk/fleet/config`. The server sends configuration data to
+`avarell/fleet/config` (`server.js:166`). The web interface also sends to `avarell/fleet/config`
+(`App.jsx:400`). The configuration push does not reach the aircraft.
+
+The web interface simulator sends telemetry to `avarell/fleet/drone_sim_01/telemetry`. The server
+subscribes to `dji-sdk/fleet/+/telemetry`. The simulated aircraft does not show on the server.
+
+**Correction:** change the server and the web interface to `dji-sdk/fleet/config`.
+
+### 0.2 No server sends PING
+
+The application answers a `PING` command with a `PONG` event. This function is complete. No
+component of the server sends `PING`.
+
+The link-loss failsafe therefore uses the broker connection only. It makes a Go-Home command when
+the broker connection stops for more than 15 seconds. It does not detect a server that is connected
+but not operational.
+
+**Correction:** the server must send a `PING` command at a regular interval. Then the failsafe can
+also use command inactivity.
+
+### 0.3 The application has no WebRTC function
+
+Earlier versions of this document gave a native WebRTC WHIP engine
+(`NativeWebRtcStreamManager.kt`). That code never sent video data. The frame listener was empty and
+the SDP offer had a fixed example fingerprint. The file is deleted.
+
+The application sends video with the DJI hardware encoder only. Use RTMP or RTSP. A relay server
+such as go2rtc must change the video to WebRTC for a web browser.
+
+### 0.4 The application does not encrypt the settings
+
+Earlier versions of this document gave `EncryptedSharedPreferences` with AES256-GCM. The
+application does not use it. The application keeps all settings in plain SharedPreferences.
+
+### 0.5 The tests against an aircraft are not complete
+
+The motor start commands, the WPML mission file and the virtual stick control values are not tested
+against hardware. Do a bench test with the propellers removed.
+
+---
+
+## 0.6 Revision record
+
+| Version | Date | Changes |
+|---|---|---|
+| v1.2.0 | 2026-08-09 | Corrected 37 defects. Refer to the list below. |
+| v1.1.4 | 2026-08-07 | Stopped background threads at activity destruction. Removed listener memory leaks. |
+| v1.1.3 | 2026-08-06 | Added `PING`/`PONG`. Added command receipts with `transaction_id`. Added compass calibration commands. Added cell voltages and link quality to the telemetry. |
+| v1.1.2 | 2026-08-05 | The map draws a planned mission when the aircraft has no GPS position. |
+| v1.1.1 | 2026-08-04 | Read the aircraft serial number at connection. Added `is_flying` and `is_mission_executing`. |
+
+### Changes in v1.2.0
+
+Flight safety:
+
+- The link-loss failsafe uses the broker connection. It no longer uses command inactivity.
+- The virtual stick loop sends velocity values. It no longer sends zero values.
+- The control loop has no long delays. The photo action is a state machine.
+- `ARM` and `DISARM` operate the motors. The receipt shows the true motor state.
+- The C2 command dispatch operates on the main thread.
+- The follow function puts back the initial obstacle avoidance mode.
+
+Interface:
+
+- The telemetry publish operates at 10 Hz. Earlier builds sent no telemetry.
+- Non-finite numbers become `null` in the telemetry payload. Earlier builds sent no payload.
+- The MQTT client reconnects. Earlier builds could not reconnect after the first connection.
+- The task queue continues after a mission is complete.
+
+Missions:
+
+- `waylines.wpml` has all necessary WPML elements.
+- The KMZ file keeps the waypoint camera actions and gimbal actions.
+- The one-second photo action operates on survey missions only.
+
+Storage and video:
+
+- The S3 keys are removed from the source code. Set them with `SET_S3_CONFIG`.
+- The S3 signature uses one clock read and an encoded path.
+- ISR Mode 2 does not send the same file two times.
+- An `rtsp://` address makes an RTSP server. Earlier builds sent it as an RTMP address.
+- The stream address keeps the host name that the operator gives.
+
+---
 
 
 ## 1. Network Architecture
@@ -786,15 +700,32 @@ The following alternate command strings are accepted and mapped to their canonic
 
 ---
 
-## 7. Security & Deployment Notes
+## 7. Security and Deployment
 
-1. **No Internet Requirement:** Deploy without relying on external APIs (e.g., Google Maps). The app uses ArcGIS tile URLs by default; for air-gapped ops, configure OSMDroid to use a local tile server.
-2. **Reconnect Handling:** The Android client auto-reconnects on broker disconnect. The server must handle abrupt socket disconnects gracefully and not treat reconnects as new drones.
-3. **Command Deduplication:** Do not spam `EXECUTE_MISSION`. If a mission is already executing, repeated execute commands are safely ignored by the client.
-4. **Command Fight Prevention:** Send `CLEAR_MISSION` before `UPLOAD_MISSION` to guarantee a clean mission state. Calling `UPLOAD_MISSION` already clears the queue before loading, but explicit `CLEAR_MISSION` is recommended for safety-critical ops.
-5. **KMZ Payload Size:** `UPLOAD_KMZ` via MQTT is limited by broker `max_packet_size`. For files larger than ~100 KB, use `DOWNLOAD_KMZ` with a URL instead.
-6. **Pre-flight Gate:** `START_KMZ` has a built-in pre-flight check. If battery is below 20% or GPS satellites are fewer than 10, the mission is rejected and a `KMZ_PREFLIGHT_FAILED` event is published. The server should listen for this before assuming the mission started.
-7. **Authentication:** Configurable username and password (saved as `mqttUser` and `mqttPass` in SharedPreferences). Default fallback credentials are `admin` / `password`. Ensure you configure secure, custom broker credentials through the Advanced System Settings dialog for deployment outside a private lab network.
+**CAUTION: The application keeps all settings in plain SharedPreferences. It does not encrypt them.
+Do not put an operational password on a tablet that other persons can get.**
+
+1. **No internet connection is necessary.** The application does not use an external service such as
+   Google Maps. The application uses ArcGIS tile addresses by default. For an air-gapped network, set
+   OSMDroid to use a local tile server.
+2. **Reconnection.** The application connects to the broker again after a disconnection. The server
+   must accept a reconnection from the same aircraft. The server must not make a new aircraft record.
+3. **Two mission commands.** Do not send `EXECUTE_MISSION` more than one time. The application
+   ignores the command when a mission operates.
+4. **Mission state.** Send `CLEAR_MISSION` before `UPLOAD_MISSION`. `UPLOAD_MISSION` clears the
+   waypoint list, but `CLEAR_MISSION` makes the state sure.
+5. **KMZ file size.** The broker parameter `max_packet_size` limits `UPLOAD_KMZ`. For a file of more
+   than about 100 KB, use `DOWNLOAD_KMZ` with an address.
+6. **Pre-flight check.** `START_KMZ` does a pre-flight check. The application rejects the mission
+   when the battery charge is less than 20 percent or the satellite count is less than 10. The
+   application then sends a `KMZ_PREFLIGHT_FAILED` event. The server must wait for this event before
+   it reports that the mission operates.
+7. **Authentication.** Set the user name and the password in the system menu. The application keeps
+   them as `mqttUser` and `mqttPass`. The default values are `admin` and `password`. Change these
+   values before you use the system outside a private network.
+8. **Storage keys.** The application has no S3 keys in the source code. Send the keys with the
+   `SET_S3_CONFIG` command, or set them in the system menu. An upload fails with HTTP 401 or 403
+   when the keys are not set.
 
 ---
 
@@ -862,28 +793,10 @@ When submitting waypoint lists via `UPLOAD_MISSION` or appending individual poin
 
 ---
 
-## 10. Revision History
+## 10. Revision Record
 
-### v1.1.4 (Current)
-- Hardened thread-safety and lifecycle management during high-frequency telemetry operations by registering and interrupting background threads (`takeoffWaitThread`, `ledBlinkThread`) upon Activity destruction.
-- Resolved memory leaks in singleton listener managers (`PayloadDetectionManager`, `WebODMAutoUpload`) by implementing and calling cleanup methods to clear cached lambda observers in `onDestroy()`.
-- Stabilized command receipt responses and UI updates during mission cancellations by verifying execution threads and guarding main-thread UI operations against destroyed activity contexts.
-
-### v1.1.3
-- Implemented C2 heartbeat monitoring using a direct MQTT PING/PONG query pattern.
-- Integrated structured Command Receipts (`ACCEPTED`, `EXECUTING`, `COMPLETED`, `FAILED`, `REJECTED`) containing `transaction_id` for fleet control traceability.
-- Added support for remote compass calibration via `START_COMPASS_CALIBRATION` and `STOP_COMPASS_CALIBRATION` commands, with active status reporting.
-- Expanded standard telemetry payloads to report cell-level battery voltages, raw uplink/downlink AirLink signal qualities, and flight ground state transitions.
-
-### v1.1.2
-- Refactored map path rendering logic to support offline/disconnected mission drawing: when drone telemetry or GPS lock is missing, the planned waypoint mission line draws starting from the first waypoint instead of hiding.
-
-### v1.1.1
-- Resolved drone unique ID immediately upon hardware connection (enabling indoor command subscription without prior GPS lock).
-- Fully implemented telemetry fields `is_flying` and `is_mission_executing` inside `flight_status` using KeyManager and internal state variables.
-- Fully implemented telemetry fields `gps_satellites` and `signal_quality_percent` inside `hardware` using live OcuSync and satellite counts.
-- Updated KMZ pre-flight check logic to query KeyManager variables directly rather than parsing UI text fields.
-- Prevented map route overlays from accidentally clearing the drone's real-time heading marker line.
+The revision record is in Section 0.6 at the start of this document. Section 0.6 also gives the
+open items that a server engineer must know.
 
 ---
 
@@ -923,4 +836,3 @@ These error codes are forwarded directly from the aircraft hardware components v
 | **`4001`** | Gimbal | Gimbal rotation command rejected (e.g., gimbal is physically locked or at structural rotation limit). |
 | **`8001`** | Camera | Camera state error (e.g., attempting to capture a photo while the SD Card is full, missing, or formatting). |
 | **`10001` - `10010`** | Waypoint Engine | KMZ File format parsing or validation errors (e.g., incorrect coordinate formats, illegal speed values). |
-| **`10101`** | Waypoint Engine | Waypoint mission execute failed (e.g., aircraft is currently too far from the starting waypoint). |
