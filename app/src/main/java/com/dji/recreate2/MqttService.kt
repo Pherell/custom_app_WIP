@@ -5,12 +5,11 @@ import android.util.Log
 import org.eclipse.paho.client.mqttv3.*
 import org.eclipse.paho.client.mqttv3.persist.MemoryPersistence
 import org.json.JSONObject
-import java.util.Arrays
 
 class MqttService(context: Context) {
 
     private val appContext = context.applicationContext // Fix BUG-25: Prevent Context Memory Leak
-    private var mqttClient: MqttClient? = null
+    @Volatile private var mqttClient: MqttClient? = null
     private val tag = "MqttService"
     
     @Volatile
@@ -64,13 +63,15 @@ class MqttService(context: Context) {
                             isConnected = true
                             onConnectionStatusChanged?.invoke(true)
                             
-                            // Subscribe to command topic immediately after connecting
+                            // Subscribe to command topic immediately after connecting.
+                            // Deliberately NOT under clientLock: this runs on Paho's callback
+                            // thread while the executor thread may still be inside the blocking
+                            // connect() holding that lock, which would stall Paho's own
+                            // callback dispatch. mqttClient is @Volatile for safe publication.
                             try {
-                                synchronized(clientLock) {
-                                    mqttClient?.subscribe("dji-sdk/fleet/$currentDroneId/command", 1)
-                                    mqttClient?.subscribe("dji-sdk/fleet/broadcast/command", 1)
-                                    mqttClient?.subscribe("dji-sdk/fleet/config", 1)
-                                }
+                                mqttClient?.subscribe("dji-sdk/fleet/$currentDroneId/command", 1)
+                                mqttClient?.subscribe("dji-sdk/fleet/broadcast/command", 1)
+                                mqttClient?.subscribe("dji-sdk/fleet/config", 1)
                                 Log.d(tag, "Subscribed to command, broadcast, and config topics")
                             } catch (e: Exception) {
                                 Log.e(tag, "Failed to subscribe", e)
@@ -105,9 +106,14 @@ class MqttService(context: Context) {
 
                     Log.d(tag, "Connecting to MQTT broker: $cleanUri")
                     mqttClient?.connect(options)
-                    
-                    // Fix BUG-18: Securely zero out raw password array in memory
-                    Arrays.fill(passChars, '0')
+
+                    // NOTE: do NOT zero passChars here. MqttConnectOptions.setPassword() stores
+                    // the char[] BY REFERENCE, and isAutomaticReconnect = true makes Paho reuse
+                    // this same options object for every reconnect. Wiping the array (the old
+                    // "Fix BUG-18") made every reconnect authenticate with "0000..." and be
+                    // rejected, permanently killing the link until app restart. The security
+                    // value was nil anyway - the password is already stored in plaintext in
+                    // SharedPreferences ("mqttPass", read above).
 
                 } catch (e: Exception) {
                     val errorMsg = e.localizedMessage ?: e.message ?: e.toString()

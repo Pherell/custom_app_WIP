@@ -30,8 +30,11 @@ object S3UploadManager {
     private const val PREF_FOLDER_MODE_KEY = "s3_folder_mode"
     private const val PREF_CUSTOM_FOLDER_KEY = "s3_custom_folder"
 
-    const val DEFAULT_ACCESS_KEY = "0RUUD1YOR1DLRQN2WF7H"
-    const val DEFAULT_SECRET_KEY = "hfGxYhmhBjNL41NUecqyGev5a77H29JfO0DAEkBs"
+    // Credentials are NOT baked into the app. Provision them at runtime via the CFG tab
+    // (saveCredentials) or the SET_S3_CONFIG / UPDATE_S3_CONFIG C2 command.
+    // Previously two live Ceph keys were hardcoded here and shipped in every APK.
+    const val DEFAULT_ACCESS_KEY = ""
+    const val DEFAULT_SECRET_KEY = ""
     const val DEFAULT_REGION = "BT"
 
     const val FOLDER_MODE_AUTO = "AUTO"
@@ -275,9 +278,6 @@ object S3UploadManager {
      * Uploads an existing local file to S3 with auto-generated date folder and AWS SigV4 headers. (Used for Mode 2)
      */
     fun uploadFile(context: Context, file: File, onSuccess: () -> Unit, onError: (String) -> Unit) {
-        // Ensure local storage copy is preserved
-        saveToLocalStorage(context, file)
-
         val targetUrl = buildTargetS3Url(context, file.name)
         val startTime = System.currentTimeMillis()
         Log.d(TAG, "Uploading ${file.name} (${file.length()} bytes) to $targetUrl")
@@ -285,6 +285,11 @@ object S3UploadManager {
 
         uploadExecutor.submit {
             try {
+                // Preserve the local copy on the worker thread - this is a full file copy and
+                // for a multi-GB ISR video it would otherwise block the calling (often main)
+                // thread for seconds.
+                saveToLocalStorage(context, file)
+
                 val requestBody = file.asRequestBody("application/octet-stream".toMediaTypeOrNull())
                 val requestBuilder = Request.Builder()
                     .url(targetUrl)
@@ -328,7 +333,6 @@ object S3UploadManager {
         onSuccess: () -> Unit,
         onError: (String) -> Unit
     ) {
-        saveToLocalStorage(context, localFile)
         val cleanFolder   = remoteFolder.trim().replace(" ", "_").removeSurrounding("/")
         val cleanFilename = remoteFileName.trim().replace(" ", "_")
         val baseUrl       = getS3ServerUrl(context).trim().removeSuffix("/")
@@ -339,6 +343,8 @@ object S3UploadManager {
 
         uploadExecutor.submit {
             try {
+                // See the other uploadFile overload: copy on the worker, not the caller.
+                saveToLocalStorage(context, localFile)
                 onProgress?.invoke(20)
                 val requestBody = localFile.asRequestBody("image/jpeg".toMediaTypeOrNull())
                 val requestBuilder = Request.Builder()
@@ -422,9 +428,27 @@ object S3UploadManager {
             val region    = getRegion(context)
             val service   = "s3"
 
+            if (accessKey.isBlank() || secretKey.isBlank()) {
+                // No credentials provisioned. Send unsigned so the server returns 401/403,
+                // which surfaces through onUploadFailedListener as a clear operator alert,
+                // rather than silently sending a signature derived from an empty key.
+                Log.e(TAG, "S3 credentials are not configured - request will be sent unsigned. " +
+                        "Set them via the CFG tab or the SET_S3_CONFIG C2 command.")
+                return
+            }
+
             val uri = java.net.URI.create(urlStr)
             val host = if (uri.port != -1 && uri.port != 80 && uri.port != 443) "${uri.host}:${uri.port}" else uri.host
-            val canonicalUri = if (uri.rawPath.isNullOrEmpty()) "/" else uri.rawPath
+            // SigV4 requires each path segment to be URI-encoded; uri.rawPath is not.
+            // Without this, any filename containing a reserved or non-ASCII character
+            // produces a signature the server rejects.
+            val canonicalUri = if (uri.rawPath.isNullOrEmpty()) {
+                "/"
+            } else {
+                uri.path.split("/").joinToString("/") { segment ->
+                    if (segment.isEmpty()) segment else uriEncode(segment)
+                }
+            }
 
             // Build canonical query string: sort params alphabetically, URI-encode keys+values
             val canonicalQueryString = (uri.rawQuery ?: "").split("&")
@@ -443,8 +467,12 @@ object S3UploadManager {
                 .joinToString("&") { "${it.first}=${it.second}" }
 
             val utcZone    = java.util.TimeZone.getTimeZone("UTC")
-            val amzDate    = SimpleDateFormat("yyyyMMdd'T'HHmmss'Z'", Locale.US).apply { timeZone = utcZone }.format(Date())
-            val dateStamp  = SimpleDateFormat("yyyyMMdd", Locale.US).apply { timeZone = utcZone }.format(Date())
+            // Both stamps MUST come from the same instant. Two separate Date() calls could
+            // straddle 00:00 UTC, yielding a credential scope that does not match the
+            // signature, and the request would be rejected.
+            val signingInstant = Date()
+            val amzDate    = SimpleDateFormat("yyyyMMdd'T'HHmmss'Z'", Locale.US).apply { timeZone = utcZone }.format(signingInstant)
+            val dateStamp  = SimpleDateFormat("yyyyMMdd", Locale.US).apply { timeZone = utcZone }.format(signingInstant)
 
             // For GET/DELETE use SHA-256 of empty string; for PUT/POST use UNSIGNED-PAYLOAD (Ceph compatible)
             val payloadHash = when (httpMethod.uppercase()) {

@@ -1,6 +1,8 @@
 package com.dji.recreate2.tracking
 
 import android.util.Log
+import dji.v5.common.callback.CommonCallbacks
+import dji.v5.common.error.IDJIError
 import dji.v5.manager.aircraft.perception.PerceptionManager
 import dji.v5.manager.aircraft.perception.data.ObstacleAvoidanceType
 
@@ -29,15 +31,79 @@ object CustomUnlimitedFollowEngine {
     private var lastObservedTime = 0L
 
     /**
+     * Obstacle avoidance mode that was in force before this engine switched to BYPASS.
+     * Null means there is nothing to restore (never switched, or already restored).
+     */
+    @Volatile
+    private var savedObstacleAvoidanceType: ObstacleAvoidanceType? = null
+
+    /**
      * Configures APAS 5.0 obstacle bypass for uninterrupted high-speed follow.
+     *
+     * The previous avoidance mode is captured first so [stopHybridFollow] can put it back.
+     * Without that, a single tap on FOLLOW left the aircraft in BYPASS for the remainder of
+     * the session — including during subsequent waypoint missions.
+     *
+     * NOTE: [maxSpeedMps] and [standoffDistM] are advisory only; MSDK v5 exposes no API here
+     * to set an ActiveTrack speed ceiling or standoff distance, so they are logged, not applied.
      */
     fun configureOptimalActiveTrack(maxSpeedMps: Double = 15.0, standoffDistM: Double = 8.0) {
         try {
             val perceptionManager = PerceptionManager.getInstance()
-            perceptionManager.setObstacleAvoidanceType(ObstacleAvoidanceType.BYPASS, null)
-            Log.d(TAG, "Configured APAS 5.0 Obstacle Bypass for High-Speed Follow (${maxSpeedMps}m/s)")
+
+            if (savedObstacleAvoidanceType != null) {
+                // Already captured on a previous start; just re-apply BYPASS.
+                applyBypass(maxSpeedMps, standoffDistM)
+                return
+            }
+
+            perceptionManager.getObstacleAvoidanceType(object : CommonCallbacks.CompletionCallbackWithParam<ObstacleAvoidanceType> {
+                override fun onSuccess(type: ObstacleAvoidanceType?) {
+                    // Never memorise BYPASS as the "previous" mode, or we would restore to it.
+                    savedObstacleAvoidanceType =
+                        if (type != null && type != ObstacleAvoidanceType.BYPASS) type else ObstacleAvoidanceType.BRAKE
+                    applyBypass(maxSpeedMps, standoffDistM)
+                }
+
+                override fun onFailure(error: IDJIError) {
+                    Log.w(TAG, "Could not read current obstacle avoidance type (${error.description()}); will restore to BRAKE on stop.")
+                    savedObstacleAvoidanceType = ObstacleAvoidanceType.BRAKE
+                    applyBypass(maxSpeedMps, standoffDistM)
+                }
+            })
         } catch (e: Exception) {
             Log.w(TAG, "Could not configure perception obstacle bypass: ${e.message}")
+        }
+    }
+
+    private fun applyBypass(maxSpeedMps: Double, standoffDistM: Double) {
+        try {
+            PerceptionManager.getInstance().setObstacleAvoidanceType(ObstacleAvoidanceType.BYPASS, null)
+            Log.d(TAG, "Configured APAS 5.0 Obstacle Bypass for High-Speed Follow " +
+                    "(requested ${maxSpeedMps}m/s, standoff ${standoffDistM}m; previous mode=$savedObstacleAvoidanceType)")
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not apply obstacle bypass: ${e.message}")
+        }
+    }
+
+    /**
+     * Puts the obstacle avoidance mode back to whatever was active before the follow engine
+     * forced BYPASS. Safe to call repeatedly — it is a no-op once restored.
+     */
+    private fun restoreObstacleAvoidance() {
+        val previous = savedObstacleAvoidanceType ?: return
+        savedObstacleAvoidanceType = null
+        try {
+            PerceptionManager.getInstance().setObstacleAvoidanceType(previous, object : CommonCallbacks.CompletionCallback {
+                override fun onSuccess() {
+                    Log.d(TAG, "Restored obstacle avoidance type to $previous")
+                }
+                override fun onFailure(error: IDJIError) {
+                    Log.w(TAG, "Failed to restore obstacle avoidance type to $previous: ${error.description()}")
+                }
+            })
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not restore obstacle avoidance: ${e.message}")
         }
     }
 
@@ -95,6 +161,7 @@ object CustomUnlimitedFollowEngine {
     fun stopHybridFollow() {
         isHybridFollowActive = false
         isExtrapolationFailoverActive = false
+        restoreObstacleAvoidance()
         Log.d(TAG, "Hybrid Unlimited Target Follow Engine STOPPED")
     }
 }

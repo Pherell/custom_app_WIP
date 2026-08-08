@@ -26,12 +26,43 @@ import java.util.concurrent.atomic.AtomicBoolean
 object PostFlightS3Sync {
 
     private const val TAG = "PostFlightS3Sync"
-    
-    @Volatile
-    var isSyncing = false
-    
+
+    /** Watchdog bound on the media-list pull, so a silent SDK callback cannot wedge sync. */
+    private const val MEDIA_LIST_TIMEOUT_MS = 30_000L
+
+    /** Upper bound on waiting for pipelined S3 uploads to drain before reporting completion. */
+    private const val UPLOAD_DRAIN_TIMEOUT_MS = 300_000L
+
+    // AtomicBoolean, not a @Volatile Boolean: the old `if (isSyncing) return; isSyncing = true`
+    // was check-then-act, so the motor-off listener and a manual SYNC NOW could both pass.
+    private val syncing = java.util.concurrent.atomic.AtomicBoolean(false)
+
+    val isSyncing: Boolean
+        get() = syncing.get()
+
     private var isEnabled = false
-    private var currentMissionStartTime = 0L
+
+    private const val PREF_SYNCED_FILES = "isr_mode2_synced_files"
+
+    /** Names of media files already pulled from the camera, so landings do not re-sync them. */
+    private fun loadSyncedFileNames(context: Context): MutableSet<String> {
+        val prefs = context.getSharedPreferences("TacticalHUDConfig", Context.MODE_PRIVATE)
+        return HashSet(prefs.getStringSet(PREF_SYNCED_FILES, emptySet()) ?: emptySet())
+    }
+
+    private fun markFileSynced(context: Context, fileName: String) {
+        val prefs = context.getSharedPreferences("TacticalHUDConfig", Context.MODE_PRIVATE)
+        val updated = loadSyncedFileNames(context)
+        updated.add(fileName)
+        prefs.edit().putStringSet(PREF_SYNCED_FILES, updated).apply()
+    }
+
+    /** Clears the synced-file ledger so the next sync re-pulls everything. */
+    fun resetSyncedFileLedger(context: Context) {
+        context.getSharedPreferences("TacticalHUDConfig", Context.MODE_PRIVATE)
+            .edit().remove(PREF_SYNCED_FILES).apply()
+        Log.d(TAG, "Mode 2 synced-file ledger cleared.")
+    }
 
     fun enableAutoSync(context: Context) {
         val appCtx = context.applicationContext
@@ -72,11 +103,10 @@ object PostFlightS3Sync {
     }
 
     fun startSync(context: Context) {
-        if (isSyncing) {
+        if (!syncing.compareAndSet(false, true)) {
             Log.w(TAG, "Mode 2 sync already in progress.")
             return
         }
-        isSyncing = true
 
         val mediaManager = MediaDataCenter.getInstance().mediaManager
         if (mediaManager == null) {
@@ -84,9 +114,20 @@ object PostFlightS3Sync {
             Handler(Looper.getMainLooper()).post {
                 Toast.makeText(context, "⚠️ ALERT: Drone camera storage disconnected or empty!", Toast.LENGTH_LONG).show()
             }
-            isSyncing = false
+            syncing.set(false)
             return
         }
+
+        // Watchdog: if neither pullMediaFileListFromCamera callback ever fires, the flag would
+        // stay true and sync would be dead for the rest of the process lifetime.
+        val watchdogFor = mediaManager
+        Handler(Looper.getMainLooper()).postDelayed({
+            if (syncing.get() && watchdogFor === MediaDataCenter.getInstance().mediaManager) {
+                Log.e(TAG, "Mode 2 media list pull timed out; releasing sync lock.")
+                Toast.makeText(context, "⚠️ Mode 2: Media list timed out.", Toast.LENGTH_LONG).show()
+                syncing.set(false)
+            }
+        }, MEDIA_LIST_TIMEOUT_MS)
 
         pullMediaListInternal(context, mediaManager)
     }
@@ -118,7 +159,7 @@ object PostFlightS3Sync {
                         Handler(Looper.getMainLooper()).post {
                             Toast.makeText(context, "⚠️ Mode 2: Media fetch failed: [${err2.errorCode()}] ${err2.description()}", Toast.LENGTH_LONG).show()
                         }
-                        isSyncing = false
+                        syncing.set(false)
                     }
                 })
             }
@@ -128,26 +169,41 @@ object PostFlightS3Sync {
     private fun processMediaFileList(context: Context, fileList: List<MediaFile>) {
         Log.d(TAG, "Pulled ${fileList.size} raw media files from camera storage.")
 
-        val newFiles = fileList.filter { mediaFile ->
-            val isImage = mediaFile.fileName.endsWith(".jpg", ignoreCase = true) || 
+        // Skip anything already pulled in a previous sync. Without this ledger the filter below
+        // was "new" in name only, and EVERY landing re-downloaded and re-uploaded the entire
+        // SD card. Use resetSyncedFileLedger(context) to force a full re-sync.
+        val alreadySynced = loadSyncedFileNames(context)
+
+        val mediaFiles = fileList.filter { mediaFile ->
+            val isImage = mediaFile.fileName.endsWith(".jpg", ignoreCase = true) ||
                           mediaFile.fileName.endsWith(".jpeg", ignoreCase = true) ||
                           mediaFile.fileName.endsWith(".dng", ignoreCase = true)
             val isVideo = mediaFile.fileName.endsWith(".mp4", ignoreCase = true) ||
                           mediaFile.fileName.endsWith(".mov", ignoreCase = true)
-            
+
             isImage || isVideo
+        }
+        val newFiles = mediaFiles.filter { it.fileName !in alreadySynced }
+        val skipped = mediaFiles.size - newFiles.size
+        if (skipped > 0) {
+            Log.d(TAG, "Skipping $skipped media file(s) already synced in a previous run.")
         }
 
         if (newFiles.isEmpty()) {
-            Log.d(TAG, "No image/video files found to sync in camera storage.")
-            Handler(Looper.getMainLooper()).post {
-                Toast.makeText(context, "⚠️ Mode 2: No media files found in drone storage!", Toast.LENGTH_LONG).show()
+            val msg = if (mediaFiles.isEmpty()) {
+                "⚠️ Mode 2: No media files found in drone storage!"
+            } else {
+                "Mode 2: All ${mediaFiles.size} media file(s) already synced."
             }
-            isSyncing = false
+            Log.d(TAG, msg)
+            Handler(Looper.getMainLooper()).post {
+                Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+            }
+            syncing.set(false)
             return
         }
 
-        Log.d(TAG, "Found ${newFiles.size} media files for Mode 2 sync.")
+        Log.d(TAG, "Found ${newFiles.size} new media files for Mode 2 sync.")
         downloadAndUploadFiles(context, newFiles)
     }
 
@@ -177,6 +233,9 @@ object PostFlightS3Sync {
     private fun downloadAndUploadFiles(context: Context, droneFiles: List<MediaFile>) {
         val storageDir = getLocalFetchDirectory(context)
         val totalCount = droneFiles.size
+
+        val pendingUploads = java.util.concurrent.atomic.AtomicInteger(0)
+        val uploadsDone = java.util.concurrent.Semaphore(0)
 
         Thread {
             try {
@@ -262,6 +321,8 @@ object PostFlightS3Sync {
                         Toast.makeText(context, uploadStatus, Toast.LENGTH_SHORT).show()
                     }
 
+                    pendingUploads.incrementAndGet()
+                    val sourceName = mediaFile.fileName
                     S3UploadManager.uploadFile(context, destFile,
                         onSuccess = {
                             val doneMsg = "[$itemIndex/$totalCount] ISR ✔ Uploaded ${destFile.name} to S3"
@@ -269,19 +330,40 @@ object PostFlightS3Sync {
                             Handler(Looper.getMainLooper()).post {
                                 Toast.makeText(context, doneMsg, Toast.LENGTH_SHORT).show()
                             }
+                            // Only record it as synced once S3 has actually accepted it, so a
+                            // failed upload is retried on the next run.
+                            markFileSynced(context, sourceName)
                             if (destFile.exists()) destFile.delete()
+                            pendingUploads.decrementAndGet()
+                            uploadsDone.release()
                         },
                         onError = { err ->
                             Log.e(TAG, "S3 Upload Failed for ${destFile.name}: $err")
+                            pendingUploads.decrementAndGet()
+                            uploadsDone.release()
                         }
                     )
                 }
-                
+
+                // Wait for the pipelined uploads before declaring completion. The success
+                // toast used to fire (and the sync lock used to release) while uploads were
+                // still in flight.
+                val deadline = System.currentTimeMillis() + UPLOAD_DRAIN_TIMEOUT_MS
+                while (pendingUploads.get() > 0 && System.currentTimeMillis() < deadline) {
+                    uploadsDone.tryAcquire(1, TimeUnit.SECONDS)
+                }
+
+                val stillPending = pendingUploads.get()
                 Handler(Looper.getMainLooper()).post {
-                    Toast.makeText(context, "ISR Mode 2 All Files Synced & Uploaded to S3!", Toast.LENGTH_LONG).show()
+                    val msg = if (stillPending > 0) {
+                        "ISR Mode 2: synced, but $stillPending upload(s) did not complete."
+                    } else {
+                        "ISR Mode 2 All Files Synced & Uploaded to S3!"
+                    }
+                    Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
                 }
             } finally {
-                isSyncing = false
+                syncing.set(false)
             }
         }.start()
     }

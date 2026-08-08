@@ -46,6 +46,14 @@ object DroneTaskManager {
             return
         }
 
+        // Do not silently orphan a task that is already running - report it as CANCELLED so
+        // the C2 server's view of task state stays consistent.
+        val outgoing = activeTask
+        if (outgoing != null && outgoing.taskId != cleanTaskId) {
+            Log.w(TAG, "Task '${outgoing.taskId}' superseded by '$cleanTaskId'; marking it CANCELLED.")
+            onTaskStateChanged?.invoke(outgoing.copy(status = "CANCELLED"))
+        }
+
         val updatedTask = task.copy(taskId = cleanTaskId, status = "RUNNING")
         activeTask = updatedTask
 

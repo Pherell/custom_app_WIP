@@ -1,7 +1,21 @@
 # Recreate2 Workspace Defect & Configuration Audit Report
 
 > **Audit Date**: 2026-07-28  
-> **Status**: RESOLVED & HARDENED  
+> **Status**: SUPERSEDED — see the correction notice below  
+
+> ### ⚠️ Correction (2026-08-08)
+> Two of the four defects below were recorded against code that **does not run**:
+> * **Defect #2 (`ARLandingOverlayView.kt`)** — this custom view is referenced only from
+>   `res/layout/ui_v2_concept.xml`, which is never inflated (`activity_main.xml` is). The
+>   `postInvalidate()` change is real but unreachable.
+> * **Defect #3 (`ARVisionLandingManager.kt`)** — the class was never instantiated anywhere in
+>   the app. It has since been deleted.
+>
+> Treat this document as a historical record, not as a description of live behaviour. A much
+> larger set of defects (telemetry never publishing, the Virtual-Stick engine commanding zero
+> velocity, a link-loss failsafe firing on healthy links, fake ARM/DISARM, and committed S3
+> credentials) was found and fixed on 2026-08-08 and is **not** covered here.
+
 > **Target Audience**: Core Developers, Maintainers, and Integration Engineers  
 
 ---
