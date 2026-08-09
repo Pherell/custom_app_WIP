@@ -7935,7 +7935,17 @@ class MainActivity : AppCompatActivity() {
         // uses the vertical FOV. Both used to be derived from the horizontal swath, so on a
         // non-square sensor the real forward overlap did not match what the operator asked for.
         val hFovDeg = cameraFov
-        val vFovDeg = hFovDeg * (9.0 / 16.0) // same aspect assumption as updateARHomePoint()
+        // Correct vertical FOV: 2*atan(tan(hFov/2)*aspect). The old hFov*9/16 under-reported it
+        // (at 84 degrees it gave 47 instead of ~54), so the along-track photo spacing was too
+        // tight and the survey took more images than the requested overlap needed.
+        //
+        // Uses the CAMERA aspect, not the cropped view: the aircraft records the whole frame
+        // regardless of how much of it the tablet happens to show.
+        val vFovDeg = com.dji.recreate2.gimbal.CameraProjection.verticalFovDeg(
+            hFovDeg,
+            com.dji.recreate2.gimbal.CameraProjection.videoHeight.toDouble() /
+                com.dji.recreate2.gimbal.CameraProjection.videoWidth.toDouble()
+        )
         val sideSwathMeters  = 2 * previewAlt * Math.tan(Math.toRadians(hFovDeg / 2.0))
         val frontSwathMeters = 2 * previewAlt * Math.tan(Math.toRadians(vFovDeg / 2.0))
 
