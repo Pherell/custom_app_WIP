@@ -2189,9 +2189,12 @@ class MainActivity : AppCompatActivity() {
                 for (l in 0 until loops) {
                     for (i in 0 until points) {
                         val angle = (i * 360.0 / points) * Math.PI / 180.0
-                        val lat = wp.geoPoint.latitude + (radius / 111320.0) * Math.cos(angle)
-                        val lon = wp.geoPoint.longitude + (radius / (111320.0 * Math.cos(wp.geoPoint.latitude * Math.PI / 180.0))) * Math.sin(angle)
-                        
+                        val (lat, lon) = com.dji.recreate2.geo.GeoMath.offset(
+                            wp.geoPoint.latitude, wp.geoPoint.longitude,
+                            northMeters = radius * Math.cos(angle),
+                            eastMeters = radius * Math.sin(angle)
+                        )
+
                         val results = FloatArray(3)
                         android.location.Location.distanceBetween(lat, lon, wp.geoPoint.latitude, wp.geoPoint.longitude, results)
                         val bearing = ((results[1] % 360) + 360) % 360.0
@@ -3767,7 +3770,7 @@ class MainActivity : AppCompatActivity() {
                 val loops = wp.orbitLoops
                 
                 // Orbit starts at angle 0 (North offset)
-                val startLat = wp.geoPoint.latitude + (radius / 111320.0)
+                val startLat = wp.geoPoint.latitude + com.dji.recreate2.geo.GeoMath.degreesLat(radius, wp.geoPoint.latitude)
                 val startLon = wp.geoPoint.longitude
                 val startOrbitPt = GeoPoint(startLat, startLon)
                 
@@ -3779,8 +3782,11 @@ class MainActivity : AppCompatActivity() {
                 for (l in 0 until loops) {
                     for (i in 1..stepsPerLoop) {
                         val angle = (i * 360.0 / stepsPerLoop) * Math.PI / 180.0
-                        val lat = wp.geoPoint.latitude + (radius / 111320.0) * Math.cos(angle)
-                        val lon = wp.geoPoint.longitude + (radius / (111320.0 * Math.cos(wp.geoPoint.latitude * Math.PI / 180.0))) * Math.sin(angle)
+                        val (lat, lon) = com.dji.recreate2.geo.GeoMath.offset(
+                            wp.geoPoint.latitude, wp.geoPoint.longitude,
+                            northMeters = radius * Math.cos(angle),
+                            eastMeters = radius * Math.sin(angle)
+                        )
                         points.add(GeoPoint(lat, lon))
                     }
                 }
@@ -3861,9 +3867,8 @@ class MainActivity : AppCompatActivity() {
     private fun buildOrbitCircleOverlay(center: GeoPoint, radiusMeters: Double): org.osmdroid.views.overlay.Polyline {
         val steps = 72
         val circlePts = ArrayList<GeoPoint>(steps + 1)
-        val latOffset = radiusMeters / 111320.0
-        val cosLat = Math.max(0.0001, Math.abs(Math.cos(Math.toRadians(center.latitude))))
-        val lonOffset = radiusMeters / (111320.0 * cosLat)
+        val latOffset = com.dji.recreate2.geo.GeoMath.degreesLat(radiusMeters, center.latitude)
+        val lonOffset = com.dji.recreate2.geo.GeoMath.degreesLon(radiusMeters, center.latitude)
         for (i in 0..steps) {
             val angle = Math.toRadians((i * 360.0 / steps))
             circlePts.add(GeoPoint(
@@ -3953,9 +3958,8 @@ class MainActivity : AppCompatActivity() {
                         val deltaEastMeters = curVy * dtSec
                         val deltaUpMeters = curVz * dtSec
 
-                        val latRad = Math.toRadians(droneLat)
-                        val deltaLatDeg = deltaNorthMeters / 111132.92
-                        val deltaLonDeg = deltaEastMeters / (111412.84 * Math.cos(latRad))
+                        val deltaLatDeg = com.dji.recreate2.geo.GeoMath.degreesLat(deltaNorthMeters, droneLat)
+                        val deltaLonDeg = com.dji.recreate2.geo.GeoMath.degreesLon(deltaEastMeters, droneLat)
 
                         droneLat += deltaLatDeg
                         droneLon += deltaLonDeg
@@ -5177,8 +5181,9 @@ class MainActivity : AppCompatActivity() {
                     val curAlt = droneAlt
 
                     if (!curLat.isNaN() && !curLon.isNaN() && !curAlt.isNaN() && curLat != 0.0 && curLon != 0.0) {
-                        val dN = (tgpTargetLat - curLat) * 111132.92
-                        val dE = (tgpTargetLon - curLon) * 111412.84 * Math.cos(Math.toRadians(curLat))
+                        val (dN, dE) = com.dji.recreate2.geo.GeoMath.toNorthEast(
+                            curLat, curLon, tgpTargetLat, tgpTargetLon
+                        )
                         val dU = tgpTargetAlt - curAlt
 
                         val distanceHorizontal = Math.sqrt(dN * dN + dE * dE)
@@ -7959,8 +7964,9 @@ class MainActivity : AppCompatActivity() {
             return
         }
         
-        val latStep = distanceBetweenLinesMeters / 111320.0
-        val lonStepBase = distanceBetweenLinesMeters / (111320.0 * Math.cos(Math.toRadians((minLat + maxLat) / 2.0)))
+        val midLat = (minLat + maxLat) / 2.0
+        val latStep = com.dji.recreate2.geo.GeoMath.degreesLat(distanceBetweenLinesMeters, midLat)
+        val lonStepBase = com.dji.recreate2.geo.GeoMath.degreesLon(distanceBetweenLinesMeters, midLat)
         
         // Generate Horizontal Lines (Latitude Slices)
         var isLeftToRight = true
@@ -7985,11 +7991,11 @@ class MainActivity : AppCompatActivity() {
                     val lon1 = intersections[i]
                     val lon2 = intersections[i+1]
                     val overshootMeters = 15.0
-                    val lonOvershoot = overshootMeters / (111320.0 * Math.cos(Math.toRadians(currentLat)))
+                    val lonOvershoot = com.dji.recreate2.geo.GeoMath.degreesLon(overshootMeters, currentLat)
                     val extendedLon1 = lon1 - lonOvershoot
                     val extendedLon2 = lon2 + lonOvershoot
                     val lonDistance = extendedLon2 - extendedLon1
-                    val metersLon = lonDistance * (111320.0 * Math.cos(Math.toRadians(currentLat)))
+                    val metersLon = com.dji.recreate2.geo.GeoMath.metersFromLon(lonDistance, currentLat)
                     // Along-track spacing uses the vertical-FOV swath, not the horizontal one.
                     val numPhotos = Math.max(2, Math.ceil(Math.abs(metersLon) / photoIntervalMeters).toInt() + 1)
                     val lonInterval = lonDistance / (numPhotos - 1)
@@ -8035,11 +8041,11 @@ class MainActivity : AppCompatActivity() {
                         val lat1 = intersections[i]
                         val lat2 = intersections[i+1]
                         val overshootMeters = 15.0
-                        val latOvershoot = overshootMeters / 111320.0
+                        val latOvershoot = com.dji.recreate2.geo.GeoMath.degreesLat(overshootMeters, midLat)
                         val extendedLat1 = lat1 - latOvershoot
                         val extendedLat2 = lat2 + latOvershoot
                         val latDistance = extendedLat2 - extendedLat1
-                        val metersLat = latDistance * 111320.0
+                        val metersLat = com.dji.recreate2.geo.GeoMath.metersFromLat(latDistance, midLat)
                         // Along-track spacing uses the vertical-FOV swath, not the horizontal one.
                         val numPhotos = Math.max(2, Math.ceil(Math.abs(metersLat) / photoIntervalMeters).toInt() + 1)
                         val latInterval = latDistance / (numPhotos - 1)
