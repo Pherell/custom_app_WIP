@@ -62,9 +62,16 @@ correct.**
 | `CompassView.kt` | 88 | Draws the compass |
 | `gimbal/CameraProjection.kt` | 141 | Camera-frame to screen calculations |
 | `gimbal/GimbalLimits.kt` | 120 | Gimbal mechanical limits |
+| `mapping/SurveyGrid.kt` | 258 | Survey grid, orbit ring and velocity frame calculations |
+| `geo/GeoMath.kt` | 91 | Metres to degrees conversions |
+| `geo/CameraGeolocator.kt` | 196 | Camera line of sight to ground position, for an aircraft with no rangefinder |
 
 **NOTE: `MainActivity.kt` has 64 percent of the code. Divide this file before you add a large
 function to it.**
+
+**NOTE: `mapping/SurveyGrid.kt` holds all survey and orbit geometry. `MainActivity` reads the
+interface fields and makes the waypoints. Do not put a calculation back into `MainActivity` —
+a calculation there cannot have a test.**
 
 ### 2.3 Deleted files
 
@@ -72,6 +79,7 @@ function to it.**
 |---|---|
 | `ARVisionLandingManager.kt` | No code made an instance of it. An earlier version of this document gave an OpenCV and ArUco landing function. That function did not exist. |
 | `ARLandingOverlayView.kt` | Only the unused layout `ui_v2_concept.xml` used it. Both are deleted. |
+| `dialog_mapping_settings.xml`, `dialog_waypoint_action.xml` | No code made these layouts. The mapping fields are in `activity_main.xml` and the waypoint actions are in the `spWpAction` list in `dialog_waypoint.xml`. |
 | `NativeWebRtcStreamManager.kt`, `WhipWebRtcManager.kt` | Never sent video data. |
 
 Precision landing is now an aircraft function that the application turns on
@@ -125,7 +133,40 @@ file does not start this service.
 
 ---
 
-## 4. Rules for a change
+## 4. Unit tests
+
+The tests operate on the development computer. They do not need an aircraft.
+
+```
+./gradlew :app:testDebugUnitTest
+```
+
+**NOTE: Gradle 9.4.1 needs Java 17 or a later version. If the command stops with a Java version
+message, set `JAVA_HOME` to the Java in Android Studio (`<Android Studio>/jbr`).**
+
+The report is at `app/build/reports/tests/testDebugUnitTest/index.html`.
+
+| Test file | Contents |
+|---|---|
+| `geo/GeoMathTest.kt` | The metres-per-degree values against the published table |
+| `gimbal/CameraProjectionTest.kt` | Field of view, CENTER_CROP and the angle-to-pixel calculation |
+| `gimbal/GimbalLimitsTest.kt` | The limits, the safety margin and the aircraft yaw handover |
+| `KmzGeneratorWpmlTest.kt` | The WPML elements, the waypoint actions and the gimbal limits in a mission file |
+| `aws/SigV4Test.kt` | The AWS signature, the character encoding and the single clock read |
+| `mapping/SurveyGridTest.kt` | The grid line spacing, the photo interval, the flight path direction, the orbit ring and the velocity frame |
+| `geo/CameraGeolocatorTest.kt` | The camera target position, the angle calculation, the ground height correction, the refusals and the error estimate |
+| `GpsTaggingManagerTest.kt` | The coordinate test that stops the application from closing |
+
+Some tests are regression tests for a defect. The comment in the test gives the defect. Do not
+remove these tests.
+
+**CAUTION: These tests examine calculations only. They do not examine the aircraft behaviour.
+The virtual stick values, the motor commands and the mission file acceptance are not tested.
+Refer to Section 6.**
+
+---
+
+## 5. Rules for a change
 
 1. Send all MSDK `setValue` and `performAction` calls from the main thread.
 2. Use `postInvalidate()` in a custom view when a background thread calls it.
@@ -134,10 +175,12 @@ file does not start this service.
 5. Do not make a `COMPLETED` receipt until the aircraft shows the new state.
 6. Change `README.md` and `SERVER_API_DOCS.md` when you change an interface.
 7. Use ASD-STE100 Simplified Technical English in all documents.
+8. Operate `./gradlew :app:testDebugUnitTest` before you send a change. Add a test when you
+   correct a calculation.
 
 ---
 
-## 5. Open items
+## 6. Open items
 
 Refer to `WORKSPACE_AUDIT.md` Section 5 for the full list. The most important items are:
 
@@ -145,4 +188,10 @@ Refer to `WORKSPACE_AUDIT.md` Section 5 for the full list. The most important it
 2. The web interface sends the configuration and the simulated telemetry on the deprecated
    `avarell/` topic. The server and the KMZ hub are corrected.
 3. Do a bench test of the motor commands with the propellers removed.
-4. The project has no test dependencies. The three files in `app/src/test` cannot operate.
+4. **Examine the gimbal yaw convention.** `updateARHomePoint` and the targeting pod both
+   calculate `cameraYaw = droneYaw + gimbalYaw`. This is correct only if the SDK gives the gimbal
+   yaw relative to the airframe. Point the aircraft to the north, turn the gimbal 45 degrees to
+   the right and read both values in the log. If `gimbalYaw` shows 45, the calculation is correct.
+   No test can answer this question.
+5. **Examine the mission speed.** The ANGLE mode defect (`WORKSPACE_AUDIT.md` Section 2A.3) is
+   corrected. Make sure that a waypoint leg holds the commanded speed and does not accelerate.

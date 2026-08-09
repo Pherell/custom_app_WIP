@@ -3,7 +3,8 @@
 > **Language standard:** ASD-STE100 Simplified Technical English.
 > **Last change:** 2026-08-09.
 > **Status:** Audit 2 is complete. The corrections are on the branch
-> `fix/critical-flight-safety-and-c2-defects`.
+> `fix/critical-flight-safety-and-c2-defects`. Section 2A gives four more defects that the unit
+> test work found.
 
 ---
 
@@ -102,6 +103,119 @@ time.
 
 **Correction:** The engine reads the initial mode and puts it back when the follow function stops.
 `onDestroy` now stops the tracking threads.
+
+---
+
+## 2A. Defects that the unit tests found — 2026-08-09
+
+The engineer added unit tests for the calculations that do not need an aircraft. The first
+operation of the tests found two more defects. Refer to `PROJECT_CONTEXT_SUMMARY.md` Section 4.
+
+### 2A.1 The AWS signature did not encode a non-ASCII file name
+
+**Severity:** Medium.
+
+**Cause:** `uriEncode` used `Char.isLetterOrDigit()`. That function accepts all Unicode letters.
+The AWS signature specification permits only `A-Z`, `a-z`, `0-9`, `-`, `_`, `.` and `~` without
+an encoding.
+
+**Effect:** A file name with an accented letter or a non-Latin letter made a signature that the
+server refused. The upload gave a 403 error that looks the same as a credentials error.
+
+**Correction:** The function now permits ASCII characters only.
+
+### 2A.2 Two action groups in a mission file could have the same identification number
+
+**Severity:** Medium.
+
+**Cause:** The camera action groups used the number `100 + index`. The hover action groups used
+the number `index`. The interval photo group used `999`. On a route with 100 waypoints or more,
+camera group 0 and hover group 100 both had the number 100.
+
+**Effect:** The aircraft identifies an action by the group number. Two groups with the same
+number is not defined behaviour. A survey grid on a moderate area has more than 100 waypoints.
+
+**Correction:** The camera groups use `index * 2`. The hover groups use `index * 2 + 1`. The
+interval group uses `waypoint count * 2`. These numbers cannot be the same at any route length.
+
+### 2A.3 The FPV Acro setting made the mission engine use the wrong units
+
+**Severity:** Critical.
+
+**Cause:** `createVirtualStickParam()` set `rollPitchControlMode` to ANGLE when the FPV Acro
+setting was on. ANGLE reads the roll and pitch fields as an attitude in degrees.
+`applyVelocitySetpoint` writes a speed in metres per second into the same fields.
+
+The setting had three users only: the mission engine and the targeting pod yaw. All three are
+automatic flight. The manual sticks use the basic mode and did not read this setting.
+
+**Effect:** With the setting on, a waypoint speed of 12 m/s went to the aircraft as 12 degrees of
+tilt. ANGLE mode has no speed control, so the aircraft continued to accelerate until it went past
+the waypoint. The setting made automatic flight worse and did nothing for manual flight.
+
+**Correction:** The roll and pitch mode is now always VELOCITY. The gimbal FPV mode part of the
+button is kept, because it is a true function: it locks the gimbal roll to the airframe. The
+button now has the name `btnGimbalFpvMode` and the text "GIMBAL FPV MODE (ROLL LOCK)".
+
+**NOTE: Do not put an ANGLE mode in `createVirtualStickParam()` again. There is a WARNING in the
+function and a CAUTION in `applyVelocitySetpoint`.**
+
+### 2A.4 Calculations that no test could reach
+
+The survey grid and the orbit ring were inside `MainActivity`, mixed with interface reads and map
+overlay changes. The `hFov * 9/16` error stayed in the survey grid after the engineer corrected it
+in the AR marker, and it went to the branch a second time.
+
+**Correction:** `mapping/SurveyGrid.kt` holds the grid calculation, the orbit ring and the velocity
+frame calculation. `MainActivity` keeps the interface reads, the waypoint construction and the map
+preview. 31 tests examine the new file.
+
+---
+
+## 2B. New function — camera target geolocation, 2026-08-09
+
+**Type:** New function. This is not a defect correction.
+
+**Cause of the work:** All accurate target tags needed the laser rangefinder. The application
+reports a rangefinder on the M30, M300, M350, M200, Matrice and Enterprise aircraft only. On an
+aircraft with no rangefinder, a tag gave the position of the AIRCRAFT. That aircraft can do the ISR
+mission and point its camera at a target, but it could not record where the target was.
+
+**Function:** `geo/CameraGeolocator.kt` calculates where the camera line of sight touches the
+ground. It uses the aircraft position, the aircraft height above the take-off point, the aircraft
+heading, the gimbal angles and the camera field of view. The operator can touch a position in the
+image, or use the centre of the image.
+
+The tag source order is now:
+
+1. The laser rangefinder measurement.
+2. The camera calculation (`CAM_TARGET`, source `CAMERA_GEO`).
+3. The targeting pod lock.
+4. The aircraft position.
+
+**CAUTION: A camera fix is an estimate. It is not a measurement. It assumes flat ground at a known
+height. A rangefinder measures the true distance and is always the better source.**
+
+Each camera fix has an error radius. The error increases quickly when the camera comes near to
+horizontal: at 100 m height with one degree of angle error, the error is 3.9 m at 45 degrees, 10.5 m
+at 25 degrees and 58.7 m at 10 degrees. The application refuses a fix below a minimum angle
+(15 degrees is the default value).
+
+Two new settings are on the CFG page:
+
+| Setting | Default | Function |
+|---|---|---|
+| Target elevation vs takeoff | 0.0 m | The target height in relation to the TAKE-OFF POINT. Use a negative value when the target is below the launch position. |
+| Minimum depression | 15 degrees | The application refuses a camera fix below this angle. |
+
+**WARNING: The target height is in relation to the take-off point. It is not a height above sea
+level. `KeyAltitude` gives the height above the take-off point. A confusion of the two makes a
+large error.**
+
+**NOTE: This function uses the same `cameraYaw = droneYaw + gimbalYaw` rule as the AR home marker
+and the targeting pod. No engineer has tested this rule against an aircraft. If the rule is not
+correct, all three functions are wrong by the aircraft heading. Refer to
+`PROJECT_CONTEXT_SUMMARY.md` Section 6, item 4.**
 
 ---
 
