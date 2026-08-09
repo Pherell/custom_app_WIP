@@ -258,6 +258,9 @@ class MainActivity : AppCompatActivity() {
     
     enum class MappingMode { PROFESSIONAL, QUICK }
     private var activeMappingMode = MappingMode.PROFESSIONAL
+
+    /** Last wayline index that QUICK mapping captured, so one arrival gives one screenshot. */
+    @Volatile private var lastQuickCaptureWaypointIndex = -1
     
     // (missionAltitude / missionSpeed removed - they were only ever written by the unused
     // showAltitudeSpeedDialog(). Per-waypoint altitude and speed come from TacticalWaypoint.)
@@ -2383,13 +2386,32 @@ class MainActivity : AppCompatActivity() {
         
         // actionType/poiTarget/gimbalPitch are carried through so waypoint camera and gimbal
         // actions survive onto the KMZ path; they used to be dropped here entirely.
+        //
+        // QUICK mapping captures the FPV frame on the tablet, so the aircraft must NOT also
+        // shoot to its SD card at every position. Strip PHOTO and leave SET_GIMBAL, which still
+        // aims the camera down for the survey. The tablet capture is driven by the wayline
+        // progress listener in setupAutoRthForKmzMission().
+        val isQuickMapping = activeMappingMode == MappingMode.QUICK
         val kmzWaypoints = executionWaypoints.map {
+            val action = if (isQuickMapping) {
+                it.actionType.split(",")
+                    .map { part -> part.trim() }
+                    .filter { part -> part.isNotEmpty() && !part.equals("PHOTO", ignoreCase = true) }
+                    .joinToString(",")
+                    .ifEmpty { "FLY" }
+            } else {
+                it.actionType
+            }
             KmzGenerator.KmzWaypoint(
                 it.geoPoint, it.altitude, it.speed, it.heading, it.dwellTime, it.movementMethod,
-                actionType = it.actionType,
+                actionType = action,
                 poiTarget = it.poiTarget,
                 gimbalPitch = it.gimbalPitch
             )
+        }
+        if (isQuickMapping) {
+            lastQuickCaptureWaypointIndex = -1
+            log("QUICK mapping: aircraft camera actions removed; the tablet captures each waypoint.")
         }
         val spd = executionWaypoints.firstOrNull()?.speed ?: 5.0
         
@@ -2981,12 +3003,20 @@ class MainActivity : AppCompatActivity() {
             return
         }
         
+        // Snapshot the full pose at the shutter, not at the file write. The aircraft keeps
+        // moving while the JPEG is compressed on a worker thread.
         val lat = droneLat
         val lon = droneLon
         val alt = droneAlt
-        
+        val yawAtCapture = droneYaw
+        val gimbalPitchAtCapture = gimbalPitch
+
         runOnUiThread {
             try {
+                if (fpvSurface.width <= 0 || fpvSurface.height <= 0) {
+                    showToast("Quick Capture: no video surface to read")
+                    return@runOnUiThread
+                }
                 val bitmap = android.graphics.Bitmap.createBitmap(fpvSurface.width, fpvSurface.height, android.graphics.Bitmap.Config.ARGB_8888)
                 android.view.PixelCopy.request(fpvSurface, bitmap, { result ->
                     if (result == android.view.PixelCopy.SUCCESS) {
@@ -3001,28 +3031,13 @@ class MainActivity : AppCompatActivity() {
                                 fos.flush()
                                 fos.close()
                                 
-                                // Inject EXIF
-                                val exif = androidx.exifinterface.media.ExifInterface(file.absolutePath)
-                                
-                                fun convertToDegreeMinuteSeconds(latLong: Double): String {
-                                    val absLatLong = Math.abs(latLong)
-                                    val degree = absLatLong.toInt()
-                                    val minute = ((absLatLong - degree) * 60).toInt()
-                                    val second = (((absLatLong - degree) * 60) - minute) * 60
-                                    return "$degree/1,$minute/1,${(second * 1000).toInt()}/1000"
-                                }
-                                
-                                exif.setAttribute(androidx.exifinterface.media.ExifInterface.TAG_GPS_LATITUDE, convertToDegreeMinuteSeconds(lat))
-                                exif.setAttribute(androidx.exifinterface.media.ExifInterface.TAG_GPS_LATITUDE_REF, if (lat > 0) "N" else "S")
-                                exif.setAttribute(androidx.exifinterface.media.ExifInterface.TAG_GPS_LONGITUDE, convertToDegreeMinuteSeconds(lon))
-                                exif.setAttribute(androidx.exifinterface.media.ExifInterface.TAG_GPS_LONGITUDE_REF, if (lon > 0) "E" else "W")
-                                
-                                val altAbs = Math.abs(alt)
-                                exif.setAttribute(androidx.exifinterface.media.ExifInterface.TAG_GPS_ALTITUDE, "${(altAbs * 1000).toInt()}/1000")
-                                exif.setAttribute(androidx.exifinterface.media.ExifInterface.TAG_GPS_ALTITUDE_REF, if (alt < 0) "1" else "0")
-                                
-                                exif.saveAttributes()
-                                
+                                // Same EXIF injection ISR Mode 1 uses: GPS, altitude, timestamp,
+                                // and a UserComment carrying yaw and gimbal pitch. The inline
+                                // version here previously wrote GPS only, so WebODM had no
+                                // orientation data to work with.
+                                injectExifMetadata(file, lat, lon, alt, yawAtCapture, gimbalPitchAtCapture)
+
+
                                 runOnUiThread {
                                     addImageCaptureMarker(org.osmdroid.util.GeoPoint(lat, lon))
                                     log("QuickMap Screenshot saved: ${file.name}")
@@ -3053,15 +3068,36 @@ class MainActivity : AppCompatActivity() {
     /**
      * Injects standard GPS, Altitude, Timestamp, and Drone Telemetry EXIF tags into JPEG files
      * for photogrammetry, mapping software (WebODM, Pix4D, QGIS), and GIS pipelines.
+     *
+     * Uses the live telemetry. Prefer the overload below when the file was captured earlier:
+     * the aircraft keeps moving between the shutter and the file write, and the pose written
+     * into the image must be the pose at the shutter.
      */
     private fun injectExifMetadata(file: File) {
-        if (!file.exists() || droneLat.isNaN() || droneLon.isNaN()) return
+        injectExifMetadata(file, droneLat, droneLon, droneAlt, droneYaw, gimbalPitch)
+    }
+
+    /**
+     * Injects EXIF tags from an explicit telemetry snapshot taken at the moment of capture.
+     *
+     * @param yaw aircraft heading in degrees at capture.
+     * @param gimbalPitchDeg gimbal pitch in degrees at capture.
+     */
+    private fun injectExifMetadata(
+        file: File,
+        lat: Double,
+        lon: Double,
+        alt: Double,
+        yaw: Double,
+        gimbalPitchDeg: Double
+    ) {
+        if (!file.exists() || lat.isNaN() || lon.isNaN()) return
         try {
             val exif = androidx.exifinterface.media.ExifInterface(file.absolutePath)
 
             // Latitude N/S
-            val latRef = if (droneLat < 0) "S" else "N"
-            val latAbs = Math.abs(droneLat)
+            val latRef = if (lat < 0) "S" else "N"
+            val latAbs = Math.abs(lat)
             val latDeg = latAbs.toInt()
             val latMin = ((latAbs - latDeg) * 60).toInt()
             val latSec = (latAbs - latDeg - latMin / 60.0) * 3600.0
@@ -3072,8 +3108,8 @@ class MainActivity : AppCompatActivity() {
             exif.setAttribute(androidx.exifinterface.media.ExifInterface.TAG_GPS_LATITUDE_REF, latRef)
 
             // Longitude E/W
-            val lonRef = if (droneLon < 0) "W" else "E"
-            val lonAbs = Math.abs(droneLon)
+            val lonRef = if (lon < 0) "W" else "E"
+            val lonAbs = Math.abs(lon)
             val lonDeg = lonAbs.toInt()
             val lonMin = ((lonAbs - lonDeg) * 60).toInt()
             val lonSec = (lonAbs - lonDeg - lonMin / 60.0) * 3600.0
@@ -3084,14 +3120,14 @@ class MainActivity : AppCompatActivity() {
             exif.setAttribute(androidx.exifinterface.media.ExifInterface.TAG_GPS_LONGITUDE_REF, lonRef)
 
             // Altitude
-            val altAbs = Math.abs(droneAlt)
+            val altAbs = Math.abs(alt)
             exif.setAttribute(
                 androidx.exifinterface.media.ExifInterface.TAG_GPS_ALTITUDE,
                 "${(altAbs * 1000).toInt()}/1000"
             )
             exif.setAttribute(
                 androidx.exifinterface.media.ExifInterface.TAG_GPS_ALTITUDE_REF,
-                if (droneAlt < 0) "1" else "0"
+                if (alt < 0) "1" else "0"
             )
 
             // Timestamp
@@ -3102,11 +3138,11 @@ class MainActivity : AppCompatActivity() {
             // Mapping & Telemetry tags (WebODM, Pix4D, ArcGIS compatible)
             exif.setAttribute(
                 androidx.exifinterface.media.ExifInterface.TAG_USER_COMMENT,
-                "DroneLat=$droneLat,DroneLon=$droneLon,DroneAlt=$droneAlt,Yaw=$droneYaw,GimbalPitch=$gimbalPitch"
+                "DroneLat=$lat,DroneLon=$lon,DroneAlt=$alt,Yaw=$yaw,GimbalPitch=$gimbalPitchDeg"
             )
 
             exif.saveAttributes()
-            log("EXIF Mapping Metadata injected into ${file.name}: Lat=$droneLat, Lon=$droneLon, Alt=$droneAlt, Yaw=$droneYaw")
+            log("EXIF Mapping Metadata injected into ${file.name}: Lat=$lat, Lon=$lon, Alt=$alt, Yaw=$yaw")
         } catch (e: Exception) {
             log("Failed to inject EXIF metadata: ${e.message}")
         }
@@ -8548,6 +8584,18 @@ class MainActivity : AppCompatActivity() {
                         progressObj.put("mission_file", info.missionFileName ?: "")
                         mqttService.publishMission(jsonPayload = progressObj.toString())
                     } catch (e: Exception) { e.printStackTrace() }
+                }
+
+                // QUICK mapping captures the FPV frame on the tablet instead of shooting with
+                // the aircraft camera. The KMZ runs on board, so the only signal the app gets
+                // that a planned photo position was reached is this waypoint index. Capture on
+                // each advance - the grid places exactly one waypoint per photo position.
+                if (activeMappingMode == MappingMode.QUICK) {
+                    val idx = info.currentWaypointIndex
+                    if (idx != lastQuickCaptureWaypointIndex) {
+                        lastQuickCaptureWaypointIndex = idx
+                        captureQuickScreenshot()
+                    }
                 }
             }
             override fun onWaylineExecutingInterruptReasonUpdate(error: dji.v5.common.error.IDJIError?) {
