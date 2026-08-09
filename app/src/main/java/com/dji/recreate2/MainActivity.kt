@@ -219,6 +219,18 @@ class MainActivity : AppCompatActivity() {
     private var cachedDroneSn = "UNKNOWN"
     private var cachedDroneType = "UNKNOWN"
     private var cameraFov = 84.0 // Default FOV for standard drones
+
+    /** Ask the aircraft to use its vision-based precision landing on descent. */
+    private var precisionLandingEnabled = true
+    /**
+     * Answer DJI's landing-protection prompt on the operator's behalf.
+     *
+     * Default OFF. Turning this on bypasses the aircraft's check that the ground below is safe to
+     * land on, so the operator no longer sees the prompt.
+     */
+    private var autoConfirmLanding = false
+    /** True while the aircraft reports it is running a precision landing. */
+    @Volatile private var isPerformingPrecisionLanding = false
     
     enum class TouchAction { GIMBAL, FOCUS }
     var currentTouchAction = TouchAction.GIMBAL
@@ -3625,6 +3637,13 @@ class MainActivity : AppCompatActivity() {
         signalLossAction = sharedPrefs.getInt("signalLossAction", 0)
         radarEnabled = sharedPrefs.getBoolean("radarEnabled", true)
         radarMaxDistance = sharedPrefs.getFloat("radarMaxDistance", 10.0f).toDouble()
+        // The aircraft matches its take-off image on descent. On by default; it only improves
+        // touchdown accuracy and costs nothing.
+        precisionLandingEnabled = sharedPrefs.getBoolean("precisionLandingEnabled", true)
+        // OFF by default. When on, the app answers DJI's landing-protection prompt for the
+        // operator, which bypasses the check that the ground below is safe to land on. That was
+        // previously always-on and silent.
+        autoConfirmLanding = sharedPrefs.getBoolean("autoConfirmLanding", false)
         // cameraFov was previously declared and never assigned, so it stayed at 84.0 for every
         // lens despite the "use actual camera FOV" note. It drives both the AR home-point
         // projection and the survey line spacing, so make it a real configurable value.
@@ -3643,6 +3662,8 @@ class MainActivity : AppCompatActivity() {
             putBoolean("radarEnabled", radarEnabled)
             putFloat("radarMaxDistance", radarMaxDistance.toFloat())
             putFloat("cameraFovDeg", cameraFov.toFloat())
+            putBoolean("precisionLandingEnabled", precisionLandingEnabled)
+            putBoolean("autoConfirmLanding", autoConfirmLanding)
             apply()
         }
     }
@@ -4152,6 +4173,8 @@ class MainActivity : AppCompatActivity() {
                         payload.put("gpsDeniedMode", com.dji.recreate2.flight.ConfinedSpaceFlightManager.isGpsDeniedModeEnabled)
                         payload.put("confinedSpaceMode", com.dji.recreate2.flight.ConfinedSpaceFlightManager.isConfinedSpaceModeEnabled)
                         putNum(payload, "obstacleBrakeDistanceMeters", com.dji.recreate2.flight.ConfinedSpaceFlightManager.obstacleBrakeDistanceMeters)
+                        payload.put("precision_landing", isPerformingPrecisionLanding)
+                        payload.put("object_detection_supported", isMlTrackingSupported)
                         
                         mqttService.updateDroneId(currentDroneId)
                         return payload
@@ -4407,6 +4430,53 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * Turns the aircraft's vision-based precision landing on or off to match the setting.
+     * The aircraft does the work; this only sets the flag.
+     */
+    private fun applyPrecisionLandingSetting() {
+        try {
+            val key = KeyTools.createKey(dji.sdk.keyvalue.key.FlightAssistantKey.KeyPrecisionLandingEnabled)
+            KeyManager.getInstance().setValue(key, precisionLandingEnabled, object : CommonCallbacks.CompletionCallback {
+                override fun onSuccess() {
+                    log("Precision landing set to $precisionLandingEnabled.")
+                }
+                override fun onFailure(error: IDJIError) {
+                    log("Precision landing not available on this aircraft: ${error.description()}")
+                }
+            })
+        } catch (e: Exception) {
+            log("Precision landing key unavailable: ${e.message}")
+        }
+    }
+
+    /**
+     * Asks the aircraft to run its own object detector and report boxes.
+     *
+     * This is a capability probe as well as a setting: if the airframe does not support ML
+     * tracking, detection and the follow function both stay off rather than showing an empty
+     * reticle that looks like it is working.
+     */
+    private fun enableAircraftObjectDetection() {
+        try {
+            val key = KeyTools.createKey(dji.sdk.keyvalue.key.FlightAssistantKey.KeyActiveTrackAutoDetectEnabled)
+            KeyManager.getInstance().setValue(key, true, object : CommonCallbacks.CompletionCallback {
+                override fun onSuccess() {
+                    isMlTrackingSupported = true
+                    log("Aircraft object detection enabled.")
+                }
+                override fun onFailure(error: IDJIError) {
+                    isMlTrackingSupported = false
+                    log("Aircraft object detection not supported: ${error.description()}")
+                    runOnUiThread { showToast("Object detection not available on this aircraft") }
+                }
+            })
+        } catch (e: Exception) {
+            isMlTrackingSupported = false
+            log("Object detection key unavailable: ${e.message}")
+        }
+    }
+
     private fun updateARHomePoint() {
         if (homeLat.isNaN() || homeLon.isNaN() || droneLat.isNaN() || droneLon.isNaN() || droneAlt.isNaN()) {
             runOnUiThread { arHomePoint.visibility = View.GONE }
@@ -4434,21 +4504,27 @@ class MainActivity : AppCompatActivity() {
         val targetPitch = Math.toDegrees(Math.atan2(-droneAlt, distance.toDouble()))
         val deltaPitch = targetPitch - gimbalPitch
 
-        val hFov = cameraFov // L-03: use actual camera FOV instead of hardcoded value
-        val vFov = hFov * (9.0 / 16.0) // L-03: derive vFov from aspect ratio
-
         runOnUiThread {
             val screenW = fpvSurface.width
             val screenH = fpvSurface.height
             if (screenW == 0 || screenH == 0) return@runOnUiThread
 
-            if (Math.abs(deltaYaw) > hFov / 2 + 15 || Math.abs(deltaPitch) > vFov / 2 + 15) {
+            // Visible half-angles, not the raw camera FOV. The video is bound with CENTER_CROP,
+            // so part of one axis never reaches the screen and the visible cone is narrower.
+            // The old code also derived the vertical FOV as hFov * 9/16, which is not how field
+            // of view works and put the marker systematically too far from centre vertically.
+            val (halfFovH, halfFovV) = com.dji.recreate2.gimbal.CameraProjection
+                .effectiveHalfFovDeg(cameraFov, screenW, screenH)
+
+            if (com.dji.recreate2.gimbal.CameraProjection.isOffScreen(deltaYaw, deltaPitch, halfFovH, halfFovV)) {
                 arHomePoint.visibility = View.GONE
                 return@runOnUiThread
             }
 
-            val x = (screenW / 2) + (deltaYaw / (hFov / 2)) * (screenW / 2)
-            val y = (screenH / 2) - (deltaPitch / (vFov / 2)) * (screenH / 2)
+            // Tangent projection. The old linear angle-to-pixel map was only valid near the
+            // centre and stretched badly toward the edges.
+            val x = com.dji.recreate2.gimbal.CameraProjection.angleToScreen(deltaYaw, halfFovH, screenW)
+            val y = screenH - com.dji.recreate2.gimbal.CameraProjection.angleToScreen(deltaPitch, halfFovV, screenH)
 
             arHomePoint.translationX = x.toFloat() - (arHomePoint.width / 2)
             arHomePoint.translationY = y.toFloat() - (arHomePoint.height / 2)
@@ -4523,6 +4599,14 @@ class MainActivity : AppCompatActivity() {
         )
         videoFeedBound = true
         log("Low-latency hardware FPV video stream bound (${w}x${h})")
+
+        // The projection needs the REAL stream dimensions, not the surface size, to work out how
+        // much CENTER_CROP removes. The frame info is only valid once the stream is running, so
+        // ask a moment after binding.
+        fpvSurface.postDelayed({
+            com.dji.recreate2.gimbal.CameraProjection.refreshVideoSize()
+            log("Camera projection: ${com.dji.recreate2.gimbal.CameraProjection.describe()}")
+        }, 1500)
     }
 
     private fun monitorConnectionStatus() {
@@ -4579,6 +4663,13 @@ class MainActivity : AppCompatActivity() {
                             // succeeds, GimbalLimits uses conservative defaults.
                             com.dji.recreate2.gimbal.GimbalLimits.refresh()
                             log("Gimbal limits: ${com.dji.recreate2.gimbal.GimbalLimits.describe()}")
+
+                            // Precision landing is an aircraft function: it records the take-off
+                            // site and matches it on descent. The app only turns it on.
+                            applyPrecisionLandingSetting()
+
+                            // The aircraft's own vision system supplies the detection boxes.
+                            enableAircraftObjectDetection()
                         } catch (e: Exception) {
                             android.util.Log.e("MainActivity", "Failed to resolve drone Sn/Type on connection: ${e.message}")
                         }
@@ -4596,12 +4687,38 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // --- AUTO-CONFIRM LANDING ---
+        // --- PRECISION LANDING STATUS ---
+        try {
+            val precisionActiveKey = KeyTools.createKey(dji.sdk.keyvalue.key.FlightAssistantKey.KeyIsPerformingPrecisionLanding)
+            KeyManager.getInstance().listen(precisionActiveKey, this) { _, active: Boolean? ->
+                val running = active == true
+                if (running != isPerformingPrecisionLanding) {
+                    isPerformingPrecisionLanding = running
+                    runOnUiThread {
+                        log(if (running) "🎯 Precision landing active." else "Precision landing finished.")
+                        if (running) showToast("PRECISION LANDING")
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            log("Precision landing status unavailable on this aircraft: ${e.message}")
+        }
+
+        // --- LANDING PROTECTION PROMPT ---
         val confirmLandingNeededKey = KeyTools.createKey(FlightControllerKey.KeyIsLandingConfirmationNeeded)
         KeyManager.getInstance().listen(confirmLandingNeededKey, this) { _, isNeeded: Boolean? ->
             if (isNeeded == true) {
-                runOnUiThread { 
-                    log("⚠️ Landing Protection: Auto-Confirming Landing!") 
+                // The aircraft is asking whether the ground below is safe. Answering it for the
+                // operator defeats the check, so only do that when they have opted in.
+                if (!autoConfirmLanding) {
+                    runOnUiThread {
+                        log("⚠️ Landing Protection: aircraft is asking for confirmation. Confirm on the RC.")
+                        showToast("LANDING PROTECTION: confirm on the remote controller")
+                    }
+                    return@listen
+                }
+                runOnUiThread {
+                    log("⚠️ Landing Protection: Auto-Confirming Landing!")
                     showToast("Bypassing Landing Protection. Landing!")
                 }
                 val confirmLandingKey = KeyTools.createKey(FlightControllerKey.KeyConfirmLanding)
@@ -4740,10 +4857,17 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * Gate for the optical object-tracking loop. Keep false until a real detector supplies
-     * lastTargetNormX/Y — see startOpticalObjectTracking() for the full rationale.
+     * True once the aircraft confirms it can run its own ML object detector. Set by
+     * enableAircraftObjectDetection() on connect. Object follow stays off until this is true,
+     * because without detections the tracking loop has nothing real to follow.
      */
-    private val ENABLE_OPTICAL_OBJECT_TRACKING = false
+    @Volatile private var isMlTrackingSupported = false
+
+    /** Time of the most recent detection box, used to stop the gimbal when detections stop. */
+    @Volatile private var lastTrackingBoxMs = 0L
+
+    /** Stop slewing if no detection arrives for this long. */
+    private val TRACKING_BOX_STALE_MS = 1000L
 
     private var objectTrackingOverlay: ObjectTrackingOverlayView? = null
     private var isObjectTrackingActive = false
@@ -4770,18 +4894,66 @@ class MainActivity : AppCompatActivity() {
             stopOpticalObjectTracking()
         }
 
+        // Object detections come from the AIRCRAFT's vision system, not from the tablet.
+        //
+        // This used to listen to PerceptionManager.addPerceptionInformationListener and push an
+        // empty box list on every callback. PerceptionInfo carries obstacle distances and
+        // avoidance flags only - it has no detection data at all, so that was the wrong API and
+        // the reticle could never show anything.
         try {
-            val perceptionManager = dji.v5.manager.aircraft.perception.PerceptionManager.getInstance()
-            perceptionManager.addPerceptionInformationListener { info ->
+            val mlBoxKey = KeyTools.createKey(dji.sdk.keyvalue.key.FlightAssistantKey.KeyMLTrackingBox)
+            KeyManager.getInstance().listen(mlBoxKey, this) { _, box ->
+                if (box == null) return@listen
+
+                val cx = box.centerXRatio ?: return@listen
+                val cy = box.centerYRatio ?: return@listen
+                val w = box.widthRatio ?: return@listen
+                val h = box.heightRatio ?: return@listen
+
+                lastTrackingBoxMs = System.currentTimeMillis()
+
+                // The box is a ratio of the FULL camera frame, but the video is shown with
+                // CENTER_CROP, so part of one axis is off screen. Convert into view space or the
+                // box is drawn beside the subject rather than on it.
+                val surfaceW = fpvSurface.width
+                val surfaceH = fpvSurface.height
+                val (viewCx, viewCy) = com.dji.recreate2.gimbal.CameraProjection
+                    .cameraRatioToViewRatio(cx.toFloat(), cy.toFloat(), surfaceW, surfaceH)
+                val (fracW, fracH) = com.dji.recreate2.gimbal.CameraProjection
+                    .visibleFraction(surfaceW, surfaceH)
+                val viewW = (w / fracW).toFloat()
+                val viewH = (h / fracH).toFloat()
+
+                // Feed the follow loop from the real observation. The loop used to update these
+                // from its own commanded gimbal rate, which made it track nothing.
+                lastTargetNormX = viewCx
+                lastTargetNormY = viewCy
+                lastTargetNormW = viewW
+                lastTargetNormH = viewH
+
+                val label = try { box.type?.name ?: "OBJECT" } catch (e: Exception) { "OBJECT" }
+
                 runOnUiThread {
-                    if (info != null && !isObjectTrackingActive) {
-                        val boxes = mutableListOf<DetectedObjectBox>()
-                        objectTrackingOverlay?.updateDetectedObjects(boxes)
+                    if (!isObjectTrackingActive) {
+                        objectTrackingOverlay?.updateDetectedObjects(
+                            listOf(
+                                DetectedObjectBox(
+                                    normLeft = viewCx - viewW / 2f,
+                                    normTop = viewCy - viewH / 2f,
+                                    normRight = viewCx + viewW / 2f,
+                                    normBottom = viewCy + viewH / 2f,
+                                    label = label
+                                )
+                            )
+                        )
+                    } else {
+                        objectTrackingOverlay?.updateTargetPosition(viewCx, viewCy)
                     }
                 }
             }
         } catch (e: Exception) {
-            log("PerceptionManager listener setup: ${e.message}")
+            isMlTrackingSupported = false
+            log("Aircraft ML tracking unavailable: ${e.message}")
         }
     }
 
@@ -4821,31 +4993,26 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // ---------------------------------------------------------------------------
-        // OPTICAL OBJECT TRACKING IS DISABLED — there is no detector behind it.
-        //
-        // The loop below closed on lastTargetNormX/Y, which were then updated from the
-        // *commanded* gimbal rate rather than from any observation. Nothing ever fed real
-        // detections in (setupObjectTracking pushes an empty box list), so the reticle simply
-        // decayed to centre regardless of what was on screen, while the UI announced
-        // "HYBRID UNLIMITED FOLLOW ACTIVE [APAS 54km/h]". Running it drives the gimbal off a
-        // fabricated error signal.
-        //
-        // The box is still drawn as a visual designation. For a real, working lock use the
-        // Targeting Pod geo-lock (btnTgpLock / toggleTargetingPodLock), which slews the gimbal
-        // from actual GPS geometry.
-        //
-        // To restore this feature, feed lastTargetNormX/Y from a genuine detector (DJI
-        // ActiveTrack or an on-device model) and re-enable the loop below.
-        // ---------------------------------------------------------------------------
-        if (!ENABLE_OPTICAL_OBJECT_TRACKING) {
+        // Follow needs a real detector behind it. The aircraft supplies one through
+        // FlightAssistantKey.KeyMLTrackingBox (see setupObjectTracking), and that listener writes
+        // lastTargetNormX/Y. Without it the loop would close on its own commanded gimbal rate and
+        // track nothing, which is what it used to do.
+        if (!isMlTrackingSupported) {
             isObjectTrackingActive = false
-            log("Optical object tracking requested but no detector is available; box is a visual designation only.")
-            showToast("🎯 TARGET MARKED (visual only) — use TGP for a real geo-lock")
+            log("Object follow requested but this aircraft reports no ML tracking; box is a visual designation only.")
+            showToast("🎯 TARGET MARKED (visual only) — use TGP for a geo-lock")
             return
         }
 
+        // Gimbal-only follow: the camera tracks the subject, the aircraft does not move itself.
+        //
+        // Autonomous follow is deliberately out of scope. The entry point for it is
+        // FlightAssistantKey.KeySelectQuickShotTargetByRect (or
+        // KeySelectQuickShotTrackingTargetByIndex), which hands the target to the aircraft's own
+        // ActiveTrack. That makes the aircraft fly on its own, so it needs arbitration against
+        // the virtual-stick mission loop and the link-loss failsafe before it can be enabled.
         isObjectTrackingActive = true
+        lastTrackingBoxMs = System.currentTimeMillis()
         com.dji.recreate2.tracking.CustomUnlimitedFollowEngine.startHybridFollow()
         com.dji.recreate2.tracking.CustomUnlimitedFollowEngine.configureOptimalActiveTrack(15.0, 8.0)
         com.dji.recreate2.tracking.CustomUnlimitedFollowEngine.updateTargetObservation(normX, normY)
@@ -4859,37 +5026,10 @@ class MainActivity : AppCompatActivity() {
                 val gimbalSpeedKey = KeyTools.createKey(GimbalKey.KeyRotateBySpeed, ComponentIndexType.LEFT_OR_MAIN)
 
                 while (!Thread.currentThread().isInterrupted && isObjectTrackingActive) {
-                    com.dji.recreate2.tracking.CustomUnlimitedFollowEngine.updateTargetObservation(lastTargetNormX, lastTargetNormY)
-
-                    val errorX = lastTargetNormX - 0.5f
-                    val errorY = 0.5f - lastTargetNormY
-
-                    val maxDegPerSec = 24.0
-                    val yawSpeed = (errorX * maxDegPerSec).coerceIn(-maxDegPerSec, maxDegPerSec)
-                    val pitchSpeed = (errorY * maxDegPerSec).coerceIn(-maxDegPerSec, maxDegPerSec)
-
-                    if (Math.abs(errorX) > 0.015f || Math.abs(errorY) > 0.015f) {
-                        runOnUiThread {
-                            KeyManager.getInstance().performAction(
-                                gimbalSpeedKey,
-                                GimbalSpeedRotation(pitchSpeed.toDouble(), yawSpeed.toDouble(), 0.0, CtrlInfo()),
-                                null
-                            )
-                        }
-
-                        // Physical Camera Optical Shift: Moves AR bounding box lock-step with camera rotation
-                        val fovH = 60.0
-                        val fovV = 45.0
-                        val dt = 0.05
-                        lastTargetNormX -= ((yawSpeed * dt) / fovH).toFloat()
-                        lastTargetNormY += ((pitchSpeed * dt) / fovV).toFloat()
-                        lastTargetNormX = lastTargetNormX.coerceIn(0.05f, 0.95f)
-                        lastTargetNormY = lastTargetNormY.coerceIn(0.05f, 0.95f)
-
-                        runOnUiThread {
-                            objectTrackingOverlay?.updateTargetPosition(lastTargetNormX, lastTargetNormY)
-                        }
-                    } else {
+                    // Stop slewing when the detections stop. Without this the gimbal keeps
+                    // chasing the last known box after the subject leaves the frame.
+                    val boxAgeMs = System.currentTimeMillis() - lastTrackingBoxMs
+                    if (lastTrackingBoxMs == 0L || boxAgeMs > TRACKING_BOX_STALE_MS) {
                         runOnUiThread {
                             KeyManager.getInstance().performAction(
                                 gimbalSpeedKey,
@@ -4897,6 +5037,32 @@ class MainActivity : AppCompatActivity() {
                                 null
                             )
                         }
+                        Thread.sleep(50)
+                        continue
+                    }
+
+                    com.dji.recreate2.tracking.CustomUnlimitedFollowEngine.updateTargetObservation(lastTargetNormX, lastTargetNormY)
+
+                    // lastTargetNormX/Y are written by the KeyMLTrackingBox listener in
+                    // setupObjectTracking - a real observation of where the subject is.
+                    //
+                    // The loop used to update them here from the gimbal rate it had just
+                    // commanded, so the error decayed to zero on its own and the gimbal moved
+                    // whether or not anything was in frame. That feedback is gone.
+                    val errorX = lastTargetNormX - 0.5f
+                    val errorY = 0.5f - lastTargetNormY
+
+                    val maxDegPerSec = 24.0
+                    val yawSpeed = (errorX * maxDegPerSec).coerceIn(-maxDegPerSec, maxDegPerSec)
+                    val pitchSpeed = (errorY * maxDegPerSec).coerceIn(-maxDegPerSec, maxDegPerSec)
+
+                    val rate = if (Math.abs(errorX) > 0.015f || Math.abs(errorY) > 0.015f) {
+                        GimbalSpeedRotation(pitchSpeed.toDouble(), yawSpeed.toDouble(), 0.0, CtrlInfo())
+                    } else {
+                        GimbalSpeedRotation(0.0, 0.0, 0.0, CtrlInfo())
+                    }
+                    runOnUiThread {
+                        KeyManager.getInstance().performAction(gimbalSpeedKey, rate, null)
                     }
 
                     Thread.sleep(50)
@@ -6315,11 +6481,56 @@ class MainActivity : AppCompatActivity() {
             btnDistanceLimit?.setTextColor(if (!isDistanceLimitEnabled) android.graphics.Color.parseColor("#00FF66") else android.graphics.Color.WHITE)
         }
 
+        // LANDING BINDS
+        val btnPrecisionLanding = dialog.findViewById<android.widget.Button>(R.id.btnPrecisionLanding)
+        val btnAutoConfirmLanding = dialog.findViewById<android.widget.Button>(R.id.btnAutoConfirmLanding)
+
+        fun updatePrecisionLandingUi() {
+            btnPrecisionLanding?.text =
+                if (precisionLandingEnabled) "PRECISION LANDING: ON" else "PRECISION LANDING: OFF"
+            btnPrecisionLanding?.setTextColor(
+                if (precisionLandingEnabled) android.graphics.Color.parseColor("#00FF66") else android.graphics.Color.WHITE
+            )
+        }
+
+        fun updateAutoConfirmLandingUi() {
+            // Amber, not green, when on: this state removes a safety check rather than adding one.
+            btnAutoConfirmLanding?.text =
+                if (autoConfirmLanding) "LANDING PROTECTION: AUTO-CONFIRM (BYPASSED)"
+                else "LANDING PROTECTION: ASK OPERATOR"
+            btnAutoConfirmLanding?.setTextColor(
+                if (autoConfirmLanding) android.graphics.Color.parseColor("#FFB300") else android.graphics.Color.WHITE
+            )
+        }
+
         updateGpsDeniedUi()
         updateConfinedSpaceUi()
         updateStealthUi()
         updateBellyLampUi()
         updateDistanceLimitUi()
+        updatePrecisionLandingUi()
+        updateAutoConfirmLandingUi()
+
+        btnPrecisionLanding?.setOnClickListener {
+            precisionLandingEnabled = !precisionLandingEnabled
+            saveConfig()
+            applyPrecisionLandingSetting()
+            updatePrecisionLandingUi()
+            showToast("Precision landing: ${if (precisionLandingEnabled) "ON" else "OFF"}")
+        }
+
+        btnAutoConfirmLanding?.setOnClickListener {
+            autoConfirmLanding = !autoConfirmLanding
+            saveConfig()
+            updateAutoConfirmLandingUi()
+            if (autoConfirmLanding) {
+                showToast("⚠️ Landing protection will be bypassed. The aircraft will not ask.")
+                log("Landing protection auto-confirm ENABLED by operator.")
+            } else {
+                showToast("Landing protection: the operator confirms on the remote controller.")
+                log("Landing protection auto-confirm disabled.")
+            }
+        }
 
         btnGpsDeniedMode?.setOnClickListener {
             val next = !com.dji.recreate2.flight.ConfinedSpaceFlightManager.isGpsDeniedModeEnabled

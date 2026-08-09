@@ -527,6 +527,26 @@
                     android:layout_marginBottom="8dp" />
 
                 <Button
+                    android:id="@+id/btnPrecisionLanding"
+                    android:layout_width="match_parent"
+                    android:layout_height="40dp"
+                    android:text="PRECISION LANDING: ON"
+                    android:textColor="#FFFFFF"
+                    android:textSize="12sp"
+                    android:background="@drawable/bg_glass_btn"
+                    android:layout_marginBottom="8dp" />
+
+                <Button
+                    android:id="@+id/btnAutoConfirmLanding"
+                    android:layout_width="match_parent"
+                    android:layout_height="40dp"
+                    android:text="LANDING PROTECTION: ASK OPERATOR"
+                    android:textColor="#FFFFFF"
+                    android:textSize="12sp"
+                    android:background="@drawable/bg_glass_btn"
+                    android:layout_marginBottom="8dp" />
+
+                <Button
                     android:id="@+id/btnConfinedSpaceMode"
                     android:layout_width="match_parent"
                     android:layout_height="40dp"
