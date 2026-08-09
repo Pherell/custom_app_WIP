@@ -32,7 +32,7 @@ For operation instructions, refer to `README.md`. For the C2 interface, refer to
 | Network | Eclipse Paho MQTT v3, OkHttp 4 |
 | Minimum Android | 7.0 (API 24) |
 | Target Android | 15 (API 35) |
-| Size | 14,017 lines in 23 Kotlin files |
+| Size | 14,226 lines in 24 Kotlin files |
 
 **CAUTION: The application keeps the settings in plain SharedPreferences. It does not encrypt them.
 An earlier version of this document gave `EncryptedSharedPreferences`. That statement was not
@@ -42,7 +42,7 @@ correct.**
 
 | File | Lines | Function |
 |---|---|---|
-| `MainActivity.kt` | 8,929 | The HUD, the map, the mission engine, the C2 dispatch, the camera controls and all dialogs |
+| `MainActivity.kt` | 9,178 | The HUD, the map, the mission engine, the C2 dispatch, the camera controls and all dialogs |
 | `aws/S3UploadManager.kt` | 543 | HTTP upload to the S3 endpoint with an AWS SigV4 signature |
 | `sync/FpvStreamRecorder.kt` | 473 | Records the video image on the tablet. Makes an MP4 file and an SRT file. |
 | `WebODMAutoUpload.kt` | 449 | Sends photos to a WebODM server |
@@ -60,26 +60,37 @@ correct.**
 | `GpsTaggingManager.kt` | 101 | Keeps the target coordinate tags |
 | `ObstacleRadarView.kt` | 98 | Draws the obstacle radar |
 | `CompassView.kt` | 88 | Draws the compass |
+| `gimbal/CameraProjection.kt` | 141 | Camera-frame to screen calculations |
+| `gimbal/GimbalLimits.kt` | 120 | Gimbal mechanical limits |
 
 **NOTE: `MainActivity.kt` has 64 percent of the code. Divide this file before you add a large
 function to it.**
 
-### 2.3 Files that do not operate
+### 2.3 Deleted files
 
-| File | Condition |
+| File | Reason |
 |---|---|
-| `ARLandingOverlayView.kt` | Only `res/layout/ui_v2_concept.xml` uses this view. The application does not use that layout. |
-| `tracking/CustomUnlimitedFollowEngine.kt` | The follow function is off. The application has no object detector. |
+| `ARVisionLandingManager.kt` | No code made an instance of it. An earlier version of this document gave an OpenCV and ArUco landing function. That function did not exist. |
+| `ARLandingOverlayView.kt` | Only the unused layout `ui_v2_concept.xml` used it. Both are deleted. |
+| `NativeWebRtcStreamManager.kt`, `WhipWebRtcManager.kt` | Never sent video data. |
 
-`ARVisionLandingManager.kt` is deleted. No code made an instance of that class. An earlier version
-of this document gave an OpenCV and ArUco landing function. That function did not exist.
+Precision landing is now an aircraft function that the application turns on
+(`FlightAssistantKey.KeyPrecisionLandingEnabled`). It needs no vision code on the tablet.
 
-### 2.4 Layout files
+### 2.4 Camera geometry
 
-`res/layout/activity_main.xml` is the layout that the application uses. Two other layouts are in the
-directory. Do not use them:
+`gimbal/CameraProjection.kt` holds all camera-frame to screen calculations. The AR home marker and
+the object detection boxes both use it. It gives the correct vertical field of view, and it
+corrects for the part of the image that `CENTER_CROP` removes.
 
-- `ui_v2_concept.xml` has 40 of the 63 necessary view names missing.
+`gimbal/GimbalLimits.kt` holds the mechanical limits. Every gimbal command goes through
+`clampPitch` or `clampYaw`.
+
+### 2.5 Layout files
+
+`res/layout/activity_main.xml` is the layout that the application uses. One other layout is in the
+directory. Do not use it:
+
 - `activity_main_v1_backup.xml` has 11 of the 63 necessary view names missing.
 
 **CAUTION: The application has 198 view lookups that cannot accept a null result. If you remove or
@@ -131,6 +142,7 @@ file does not start this service.
 Refer to `WORKSPACE_AUDIT.md` Section 5 for the full list. The most important items are:
 
 1. Change the S3 keys and the stream password. Both are in the Git history.
-2. Correct the configuration topic. The application and the server do not agree.
+2. The web interface sends the configuration and the simulated telemetry on the deprecated
+   `avarell/` topic. The server and the KMZ hub are corrected.
 3. Do a bench test of the motor commands with the propellers removed.
 4. The project has no test dependencies. The three files in `app/src/test` cannot operate.

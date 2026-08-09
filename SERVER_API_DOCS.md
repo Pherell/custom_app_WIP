@@ -77,20 +77,47 @@ application does not use it. The application keeps all settings in plain SharedP
 
 ### 0.5 The tests against an aircraft are not complete
 
-The motor start commands, the WPML mission file and the virtual stick control values are not tested
-against hardware. Do a bench test with the propellers removed.
+The motor start commands, the WPML mission file, the virtual stick control values, the object
+detection and the precision landing are not tested against hardware. Do a bench test with the
+propellers removed.
+
+### 0.6 New telemetry fields
+
+Two fields are new in v1.3.0:
+
+| Field | Type | Meaning |
+|---|---|---|
+| `precision_landing` | Boolean | The aircraft is running a vision-based precision landing now. |
+| `object_detection_supported` | Boolean | The aircraft accepted the object detection function. When false, the object follow function stays off. |
+
+Object detection comes from the aircraft, not from the tablet. The aircraft reports a target box
+and a type. Not all aircraft support it, so a server must not assume the field is true.
 
 ---
 
-## 0.6 Revision record
+## 0.7 Revision record
 
 | Version | Date | Changes |
 |---|---|---|
+| v1.3.0 | 2026-08-09 | Restored the AR home marker, the precision landing, the object detection and the object follow. Refer to the list below. |
 | v1.2.0 | 2026-08-09 | Corrected 37 defects. Refer to the list below. |
 | v1.1.4 | 2026-08-07 | Stopped background threads at activity destruction. Removed listener memory leaks. |
 | v1.1.3 | 2026-08-06 | Added `PING`/`PONG`. Added command receipts with `transaction_id`. Added compass calibration commands. Added cell voltages and link quality to the telemetry. |
 | v1.1.2 | 2026-08-05 | The map draws a planned mission when the aircraft has no GPS position. |
 | v1.1.1 | 2026-08-04 | Read the aircraft serial number at connection. Added `is_flying` and `is_mission_executing`. |
+
+### Changes in v1.3.0
+
+- Object detection uses the aircraft's own vision system. The application no longer listens to the
+  obstacle-avoidance interface, which has no detection data.
+- Object follow uses the detected target. Earlier builds calculated the error from the gimbal
+  command that the loop had just sent, so the camera followed nothing.
+- Precision landing is on by default. The telemetry has a `precision_landing` field.
+- The landing-protection question now goes to the operator. Earlier builds answered it
+  automatically and the check did not operate.
+- The AR home marker uses the correct field-of-view calculation and corrects for the part of the
+  image that the screen does not show.
+- New telemetry fields: `precision_landing`, `object_detection_supported`.
 
 ### Changes in v1.2.0
 

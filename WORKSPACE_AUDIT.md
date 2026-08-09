@@ -133,10 +133,14 @@ time.
 Audit 1 gave four defects and a status of RESOLVED. Two of the four defects were in code that does
 not operate:
 
-- **Defect 2 (`ARLandingOverlayView.kt`):** Only `res/layout/ui_v2_concept.xml` uses this view. The
-  application does not use that layout. The correction is real but no code path reaches it.
+- **Defect 2 (`ARLandingOverlayView.kt`):** Only `res/layout/ui_v2_concept.xml` used this view, and
+  the application does not use that layout. The correction was real but no code path reached it.
+  The view and that layout are now deleted together.
 - **Defect 3 (`ARVisionLandingManager.kt`):** No code made an instance of this class. The file is
   now deleted.
+
+Precision landing does not need either file. It is an aircraft function that the application turns
+on with `FlightAssistantKey.KeyPrecisionLandingEnabled`. Refer to `README.md` Section 6A.
 
 Audit 1 also gave a status of RESOLVED to the MQTT topic defect. The correction was not complete.
 The telemetry topic and the command topic were correct. Four other positions kept the deprecated

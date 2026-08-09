@@ -109,6 +109,13 @@ The application has three control modes. Use the buttons at the bottom right to 
 | `PAU` | Stop the return to home |
 | `SET` | Set the home point to the aircraft position |
 
+The aircraft uses its vision-based precision landing on descent. Set this in the system menu.
+
+**CAUTION: The aircraft asks the operator to confirm a landing when it cannot see safe ground. The
+application shows a message and you confirm on the remote controller. If you set
+`LANDING PROTECTION: AUTO-CONFIRM` in the system menu, the application answers for you and the
+check does not operate.**
+
 **CAUTION: The `ENG` button is adjacent to `TAK` and `LND`. The buttons are small. Look at the
 label before you touch a button.**
 
@@ -186,6 +193,47 @@ stick function. This path stops if the tablet link stops.
 6. Touch `EXEC MISSION`.
 
 The application calculates the line distance from the camera field of view and the height.
+
+---
+
+## 6A. Camera lock and target functions
+
+These functions aim the camera. They are independent of the mission.
+
+| Control | Function |
+|---|---|
+| `LCK` | Targeting pod geo-lock. The camera stays on a ground coordinate while the aircraft moves. |
+| `TAG` | Records the current target coordinate and puts a mark on the map. |
+| `FOL` | Object follow. The camera stays on a target that the aircraft detects. |
+| `OBJ` | Lets you draw a target box on the video with your finger. |
+
+### 6A.1 Object detection
+
+The **aircraft** does the object detection with its own vision system. The application does not
+detect objects on the tablet. The aircraft reports a box and a type: `PERSON`, `CAR`, `VAN`,
+`BIKE`, `ANIMAL` or `BOAT`. The application draws the box on the video.
+
+**NOTE: Not all aircraft support this function. The application tests for it when the aircraft
+connects. If the aircraft does not support it, the application shows a message and keeps the
+object follow function off.**
+
+### 6A.2 Object follow
+
+Touch `FOL` to make the camera follow a detected target. The gimbal moves; the aircraft does not
+move. If the aircraft loses the target for more than one second, the gimbal stops.
+
+### 6A.3 Targeting pod geo-lock
+
+Touch `LCK` to lock the camera to a ground coordinate. The application calculates the angle from
+the aircraft position and the target position at 10 Hz. The gimbal moves to keep the target in the
+image. If the target goes past the gimbal pan limit, the application turns the aircraft — but only
+when the joysticks are on and no mission operates. If the application cannot turn the aircraft, it
+tells you to turn it.
+
+### 6A.4 AR home marker
+
+The application draws the home point on the video. The calculation uses the camera field of view
+from `cameraFovDeg`, and it corrects for the part of the image that the screen does not show.
 
 ---
 
@@ -294,7 +342,12 @@ Useful keys:
 | `streamHost` | Host name for the stream addresses |
 | `streamName` | Stream name for the stream addresses |
 | `rtmpPathPrefix` | Path before the stream name. Empty by default. Set to `live` for an nginx-rtmp server. |
-| `cameraFovDeg` | Camera field of view in degrees. The survey calculation uses this value. |
+| `cameraFovDeg` | Camera horizontal field of view in degrees. The survey calculation and the AR home marker use this value. Set it for the lens in use. |
+| `precisionLandingEnabled` | Lets the aircraft use its vision-based precision landing. Default on. |
+| `autoConfirmLanding` | Lets the application answer the landing-protection question. Default off. |
+
+**WARNING: `autoConfirmLanding` set to on removes the check that the ground below is safe. The
+aircraft does not ask the operator. Keep this off unless you know the landing area.**
 
 ---
 
@@ -302,10 +355,12 @@ Useful keys:
 
 Read these limits before you use the application for an operational task:
 
-1. **The tests on an aircraft are not complete.** The motor start, the WPML mission file and the
-   virtual stick control values are not tested against hardware.
-2. **The object follow function is off.** The application has no object detector. Use the targeting
-   pod geo-lock for a true target lock.
+1. **The tests on an aircraft are not complete.** The motor start, the WPML mission file, the
+   virtual stick control values, the object detection and the precision landing are not tested
+   against hardware.
+2. **Object detection needs a compatible aircraft.** The aircraft supplies the detection, not the
+   tablet. If the aircraft does not support it, the application says so and keeps the object
+   follow function off.
 3. **The GCS link failsafe uses the broker connection.** The application answers a `PING` command,
    but the server does not send `PING`. Refer to `SERVER_API_DOCS.md`.
 4. **The application does not encrypt the stored settings.**
