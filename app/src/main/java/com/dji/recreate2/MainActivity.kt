@@ -29,10 +29,6 @@ import dji.v5.manager.datacenter.MediaDataCenter
 import dji.v5.manager.interfaces.ICameraStreamManager
 import dji.v5.manager.interfaces.SDKManagerCallback
 import android.os.Environment
-import dji.v5.manager.datacenter.media.MediaFile
-import dji.v5.manager.datacenter.media.MediaFileDownloadListener
-import dji.v5.manager.datacenter.media.PullMediaFileListParam
-import java.io.BufferedOutputStream
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
@@ -3315,97 +3311,11 @@ class MainActivity : AppCompatActivity() {
         )
     }
 
-    private fun downloadLatestMedia() {
-        val mediaManager = MediaDataCenter.getInstance().mediaManager
-        if (mediaManager == null) {
-            log("MediaManager unavailable - camera not connected.")
-            showToast("Camera storage unavailable.")
-            return
-        }
-        log("Fetching media list...")
+    // NOTE: downloadLatestMedia() and downloadFileToDedicatedFolder() were removed. Nothing
+    // called them, and they pulled from the camera without entering media-download mode or
+    // naming the read storage, so they could not have returned the SD card contents. ISR Mode 2
+    // (PostFlightS3Sync) is the supported way to collect media from the aircraft.
 
-        mediaManager.pullMediaFileListFromCamera(
-            PullMediaFileListParam.Builder().mediaFileIndex(-1).count(-1).build(),
-            object : CommonCallbacks.CompletionCallback {
-                override fun onSuccess() {
-                    val mediaList = mediaManager.mediaFileListData?.data ?: emptyList()
-                    log("Scanned SD Card: Found ${mediaList.size} files.")
-
-                    if (mediaList.isNotEmpty()) {
-                        val latestFile = mediaList.maxByOrNull { it.fileIndex }
-                        latestFile?.let { downloadFileToDedicatedFolder(it) }
-                    } else {
-                        log("No media files found on drone.")
-                        showToast("No media found.")
-                    }
-                }
-
-                override fun onFailure(error: IDJIError) {
-                    log("Failed to pull media list: ${error.errorCode()}")
-                    showToast("Failed to fetch media list.")
-                }
-            }
-        )
-    }
-
-    private fun downloadFileToDedicatedFolder(mediaFile: MediaFile) {
-        // App-scoped storage. The previous target was the public Downloads directory, which
-        // stopped being writable at API 30 - requestLegacyExternalStorage in the manifest is
-        // ignored at targetSdk 35, so this silently failed on every modern device.
-        val folder = File(getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "DJI_SDK_Media")
-        if (!folder.exists()) {
-            folder.mkdirs()
-        }
-        val file = File(folder, mediaFile.fileName)
-        
-        log("Downloading ${mediaFile.fileName}...")
-        showToast("Downloading ${mediaFile.fileName}...")
-        
-        try {
-            val outputStream = FileOutputStream(file, false)
-            val bos = BufferedOutputStream(outputStream)
-
-            mediaFile.pullOriginalMediaFileFromCamera(0L, object : MediaFileDownloadListener {
-                override fun onStart() { }
-                override fun onProgress(total: Long, current: Long) { }
-                override fun onRealtimeDataUpdate(data: ByteArray, position: Long) {
-                    try {
-                        bos.write(data)
-                        bos.flush()
-                    } catch (e: IOException) {
-                        e.printStackTrace()
-                    }
-                }
-                override fun onFinish() {
-                    // Close ONLY the buffered wrapper - its close() flushes and then closes the
-                    // delegate. Closing outputStream first (the old order) meant the final
-                    // flush had nowhere to go and could truncate the file.
-                    try {
-                        bos.close()
-                    } catch (e: IOException) {}
-
-                    runOnUiThread {
-                        showToast("Saved: ${file.absolutePath}")
-                        log("Download Complete: ${mediaFile.fileName}")
-                    }
-                }
-                override fun onFailure(error: IDJIError?) {
-                    try {
-                        bos.close()
-                    } catch (e: Exception) {}
-                    try {
-                        if (file.exists()) file.delete()
-                    } catch (e: Exception) {}
-                    runOnUiThread {
-                        log("Download failed: ${error?.errorCode()}")
-                        showToast("Download failed")
-                    }
-                }
-            })
-        } catch (e: Exception) {
-            log("File setup error: ${e.message}")
-        }
-    }
 
     private fun executeTakeoff(transactionId: String? = null) {
         log("Executing Auto Takeoff...")

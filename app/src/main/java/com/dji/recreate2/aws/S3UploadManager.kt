@@ -277,7 +277,18 @@ object S3UploadManager {
     /**
      * Uploads an existing local file to S3 with auto-generated date folder and AWS SigV4 headers. (Used for Mode 2)
      */
-    fun uploadFile(context: Context, file: File, onSuccess: () -> Unit, onError: (String) -> Unit) {
+    /**
+     * @param mirrorLocally copy the file into the ISR local-storage folder before upload. Pass
+     *        false when the caller already holds the file in a folder the operator chose, so it
+     *        is not duplicated into a second directory.
+     */
+    fun uploadFile(
+        context: Context,
+        file: File,
+        onSuccess: () -> Unit,
+        onError: (String) -> Unit,
+        mirrorLocally: Boolean = true
+    ) {
         val targetUrl = buildTargetS3Url(context, file.name)
         val startTime = System.currentTimeMillis()
         Log.d(TAG, "Uploading ${file.name} (${file.length()} bytes) to $targetUrl")
@@ -288,7 +299,7 @@ object S3UploadManager {
                 // Preserve the local copy on the worker thread - this is a full file copy and
                 // for a multi-GB ISR video it would otherwise block the calling (often main)
                 // thread for seconds.
-                saveToLocalStorage(context, file)
+                if (mirrorLocally) saveToLocalStorage(context, file)
 
                 val requestBody = file.asRequestBody("application/octet-stream".toMediaTypeOrNull())
                 val requestBuilder = Request.Builder()
