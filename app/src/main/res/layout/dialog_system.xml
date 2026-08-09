@@ -250,6 +250,69 @@
                     android:background="@drawable/bg_glass_btn"
                     android:layout_marginBottom="8dp" />
 
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="CAMERA TARGET GEOLOCATION (NO LRF)"
+                    android:textColor="#00E5FF"
+                    android:textSize="11sp"
+                    android:textStyle="bold"
+                    android:layout_marginTop="8dp"
+                    android:layout_marginBottom="4dp" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Target height is measured from the TAKEOFF POINT, not sea level. Negative = target below launch."
+                    android:textColor="#888888"
+                    android:textSize="10sp"
+                    android:layout_marginBottom="6dp" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:layout_marginBottom="8dp">
+
+                    <EditText
+                        android:id="@+id/etTargetElevationOffset"
+                        android:layout_width="0dp"
+                        android:layout_weight="1"
+                        android:layout_height="40dp"
+                        android:hint="Target elev. vs takeoff (m)"
+                        android:inputType="numberSigned|numberDecimal"
+                        android:textColorHint="#666666"
+                        android:textColor="#FFFFFF"
+                        android:textSize="12sp"
+                        android:background="@drawable/bg_telemetry_capsule"
+                        android:paddingHorizontal="10dp"
+                        android:layout_marginEnd="4dp" />
+
+                    <EditText
+                        android:id="@+id/etMinDepression"
+                        android:layout_width="0dp"
+                        android:layout_weight="1"
+                        android:layout_height="40dp"
+                        android:hint="Min depression (deg)"
+                        android:inputType="numberDecimal"
+                        android:textColorHint="#666666"
+                        android:textColor="#FFFFFF"
+                        android:textSize="12sp"
+                        android:background="@drawable/bg_telemetry_capsule"
+                        android:paddingHorizontal="10dp" />
+
+                </LinearLayout>
+
+                <Button
+                    android:id="@+id/btnSaveGeolocation"
+                    android:layout_width="match_parent"
+                    android:layout_height="40dp"
+                    android:text="SAVE GEOLOCATION SETTINGS"
+                    android:textColor="#00FF66"
+                    android:textSize="12sp"
+                    android:background="@drawable/bg_glass_btn"
+                    android:layout_marginBottom="8dp" />
+
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
@@ -597,10 +660,10 @@
                     android:layout_marginBottom="8dp" />
 
                 <Button
-                    android:id="@+id/btnFpvAcroMode"
+                    android:id="@+id/btnGimbalFpvMode"
                     android:layout_width="match_parent"
                     android:layout_height="40dp"
-                    android:text="⚡ FPV ACRO FLIGHT MODE: OFF"
+                    android:text="⚡ GIMBAL FPV MODE (ROLL LOCK): OFF"
                     android:textColor="#00E5FF"
                     android:textSize="12sp"
                     android:background="@drawable/bg_glass_btn"
@@ -848,7 +911,6 @@
                         android:layout_weight="1"
                         android:layout_height="40dp"
                         android:hint="S3 Access Key"
-                        android:text="0RUUD1YOR1DLRQN2WF7H"
                         android:textColorHint="#666666"
                         android:textColor="#FFFFFF"
                         android:textSize="12sp"
@@ -862,7 +924,6 @@
                         android:layout_weight="1"
                         android:layout_height="40dp"
                         android:hint="S3 Secret Key"
-                        android:text="hfGxYhmhBjNL41NUecqyGev5a77H29JfO0DAEkBs"
                         android:textColorHint="#666666"
                         android:textColor="#FFFFFF"
                         android:textSize="12sp"

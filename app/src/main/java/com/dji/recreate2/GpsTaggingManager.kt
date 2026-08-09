@@ -19,6 +19,19 @@ object GpsTaggingManager {
     private const val PREFS_NAME = "TacticalHUDConfig"
     private const val KEY_GPS_TAGS = "gps_tagged_coordinates"
 
+    /**
+     * True when a coordinate can be stored.
+     *
+     * A non-finite value is the important case. Telemetry starts at [Double.NaN] and stays there
+     * until the aircraft has a satellite lock, `org.json` throws on a NaN, and nothing on the path
+     * from the button to [saveTags] caught it - so tagging before a fix closed the app. The
+     * callers used to test `lat == 0.0`, which a NaN passes.
+     */
+    @JvmStatic
+    fun isTaggable(latitude: Double, longitude: Double): Boolean =
+        latitude.isFinite() && longitude.isFinite() &&
+                Math.abs(latitude) <= 90.0 && Math.abs(longitude) <= 180.0
+
     fun getTags(context: Context): MutableList<GpsTagItem> {
         val list = mutableListOf<GpsTagItem>()
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -45,6 +58,16 @@ object GpsTaggingManager {
         return list
     }
 
+    /**
+     * Stores a tag.
+     *
+     * @return the new tag, or null when the coordinate is not usable.
+     *
+     * A non-finite coordinate is REFUSED rather than stored. Telemetry starts at NaN and stays
+     * there until the aircraft has a satellite lock, and org.json throws on a NaN, so a NaN that
+     * reaches [saveTags] closes the app. Callers must still test before they ask, so the operator
+     * gets a message instead of a silent nothing - this is the last line of defence.
+     */
     fun addTag(
         context: Context,
         name: String,
@@ -52,7 +75,9 @@ object GpsTaggingManager {
         longitude: Double,
         altitude: Double,
         source: String = "MANUAL"
-    ): GpsTagItem {
+    ): GpsTagItem? {
+        if (!isTaggable(latitude, longitude)) return null
+        val safeAltitude = if (altitude.isFinite()) altitude else 0.0
         val list = getTags(context)
         val maxNum = list.mapNotNull { it.id.removePrefix("TAG-").toIntOrNull() }.maxOrNull() ?: 0
         val newId = "TAG-${String.format("%03d", maxNum + 1)}"
@@ -61,7 +86,7 @@ object GpsTaggingManager {
             name = name,
             latitude = latitude,
             longitude = longitude,
-            altitude = altitude,
+            altitude = safeAltitude,
             timestamp = System.currentTimeMillis(),
             source = source
         )
