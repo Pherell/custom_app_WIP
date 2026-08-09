@@ -2,6 +2,7 @@ package com.dji.recreate2.aws
 
 import android.content.Context
 import android.util.Log
+import androidx.annotation.VisibleForTesting
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -36,6 +37,10 @@ object S3UploadManager {
     const val DEFAULT_ACCESS_KEY = ""
     const val DEFAULT_SECRET_KEY = ""
     const val DEFAULT_REGION = "BT"
+
+    /** SHA-256 of the empty string, which SigV4 uses as the payload hash for a bodyless request. */
+    @VisibleForTesting
+    internal const val EMPTY_PAYLOAD_SHA256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 
     const val FOLDER_MODE_AUTO = "AUTO"
     const val FOLDER_MODE_CUSTOM = "CUSTOM"
@@ -437,7 +442,6 @@ object S3UploadManager {
             val accessKey = getAccessKey(context)
             val secretKey = getSecretKey(context)
             val region    = getRegion(context)
-            val service   = "s3"
 
             if (accessKey.isBlank() || secretKey.isBlank()) {
                 // No credentials provisioned. Send unsigned so the server returns 401/403,
@@ -448,79 +452,123 @@ object S3UploadManager {
                 return
             }
 
-            val uri = java.net.URI.create(urlStr)
-            val host = if (uri.port != -1 && uri.port != 80 && uri.port != 443) "${uri.host}:${uri.port}" else uri.host
-            // SigV4 requires each path segment to be URI-encoded; uri.rawPath is not.
-            // Without this, any filename containing a reserved or non-ASCII character
-            // produces a signature the server rejects.
-            val canonicalUri = if (uri.rawPath.isNullOrEmpty()) {
-                "/"
-            } else {
-                uri.path.split("/").joinToString("/") { segment ->
-                    if (segment.isEmpty()) segment else uriEncode(segment)
-                }
-            }
+            // ONE clock read for the whole signature. Two separate Date() calls could straddle
+            // 00:00 UTC, yielding a credential scope that does not match the signature.
+            val signed = buildSigV4Headers(httpMethod, urlStr, accessKey, secretKey, region, Date())
 
-            // Build canonical query string: sort params alphabetically, URI-encode keys+values
-            val canonicalQueryString = (uri.rawQuery ?: "").split("&")
-                .filter { it.isNotEmpty() }
-                .map { param ->
-                    val idx = param.indexOf('=')
-                    if (idx >= 0) {
-                        val k = java.net.URLDecoder.decode(param.substring(0, idx), "UTF-8")
-                        val v = java.net.URLDecoder.decode(param.substring(idx + 1), "UTF-8")
-                        uriEncode(k) to uriEncode(v)
-                    } else {
-                        uriEncode(java.net.URLDecoder.decode(param, "UTF-8")) to ""
-                    }
-                }
-                .sortedWith(compareBy({ it.first }, { it.second }))
-                .joinToString("&") { "${it.first}=${it.second}" }
+            builder.header("Host", signed.host)
+            builder.header("x-amz-date", signed.amzDate)
+            builder.header("x-amz-content-sha256", signed.payloadHash)
+            builder.header("Authorization", signed.authorization)
 
-            val utcZone    = java.util.TimeZone.getTimeZone("UTC")
-            // Both stamps MUST come from the same instant. Two separate Date() calls could
-            // straddle 00:00 UTC, yielding a credential scope that does not match the
-            // signature, and the request would be rejected.
-            val signingInstant = Date()
-            val amzDate    = SimpleDateFormat("yyyyMMdd'T'HHmmss'Z'", Locale.US).apply { timeZone = utcZone }.format(signingInstant)
-            val dateStamp  = SimpleDateFormat("yyyyMMdd", Locale.US).apply { timeZone = utcZone }.format(signingInstant)
-
-            // For GET/DELETE use SHA-256 of empty string; for PUT/POST use UNSIGNED-PAYLOAD (Ceph compatible)
-            val payloadHash = when (httpMethod.uppercase()) {
-                "GET", "DELETE", "HEAD" -> "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-                else                    -> "UNSIGNED-PAYLOAD"
-            }
-
-            val canonicalHeaders   = "host:$host\nx-amz-content-sha256:$payloadHash\nx-amz-date:$amzDate\n"
-            val signedHeaders       = "host;x-amz-content-sha256;x-amz-date"
-            val canonicalRequest    = "$httpMethod\n$canonicalUri\n$canonicalQueryString\n$canonicalHeaders\n$signedHeaders\n$payloadHash"
-            val credentialScope     = "$dateStamp/$region/$service/aws4_request"
-            val stringToSign        = "AWS4-HMAC-SHA256\n$amzDate\n$credentialScope\n${sha256Hex(canonicalRequest)}"
-
-            val kDate    = hmacSha256("AWS4$secretKey".toByteArray(Charsets.UTF_8), dateStamp)
-            val kRegion  = hmacSha256(kDate, region)
-            val kService = hmacSha256(kRegion, service)
-            val kSigning = hmacSha256(kService, "aws4_request")
-
-            val signature  = hex(hmacSha256(kSigning, stringToSign))
-            val authHeader = "AWS4-HMAC-SHA256 Credential=$accessKey/$credentialScope, SignedHeaders=$signedHeaders, Signature=$signature"
-
-            builder.header("Host", host)
-            builder.header("x-amz-date", amzDate)
-            builder.header("x-amz-content-sha256", payloadHash)
-            builder.header("Authorization", authHeader)
-
-            Log.d(TAG, "SigV4 signed: method=$httpMethod uri=$canonicalUri qs=$canonicalQueryString")
+            Log.d(TAG, "SigV4 signed: method=$httpMethod host=${signed.host}")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to sign S3 request with AWS SigV4", e)
         }
     }
 
+    /** The four headers a signed S3 request carries. */
+    @VisibleForTesting
+    internal data class SigV4Headers(
+        val host: String,
+        val amzDate: String,
+        val payloadHash: String,
+        val authorization: String
+    )
+
+    /**
+     * The AWS Signature Version 4 computation, with no I/O and no clock of its own.
+     *
+     * [signingInstant] is a parameter rather than a `Date()` inside, because both the
+     * `x-amz-date` header and the date inside the credential scope must come from the SAME
+     * instant. Passing it in is also what makes that rule testable.
+     */
+    @VisibleForTesting
+    internal fun buildSigV4Headers(
+        httpMethod: String,
+        urlStr: String,
+        accessKey: String,
+        secretKey: String,
+        region: String,
+        signingInstant: Date
+    ): SigV4Headers {
+        val service = "s3"
+        val method = httpMethod.uppercase()
+
+        val uri = java.net.URI.create(urlStr)
+        val host = if (uri.port != -1 && uri.port != 80 && uri.port != 443) "${uri.host}:${uri.port}" else uri.host
+
+        // SigV4 requires each path segment to be URI-encoded; uri.rawPath is not.
+        // Without this, any filename containing a reserved or non-ASCII character
+        // produces a signature the server rejects.
+        val canonicalUri = if (uri.rawPath.isNullOrEmpty()) {
+            "/"
+        } else {
+            uri.path.split("/").joinToString("/") { segment ->
+                if (segment.isEmpty()) segment else uriEncode(segment)
+            }
+        }
+
+        // Build canonical query string: sort params alphabetically, URI-encode keys+values
+        val canonicalQueryString = (uri.rawQuery ?: "").split("&")
+            .filter { it.isNotEmpty() }
+            .map { param ->
+                val idx = param.indexOf('=')
+                if (idx >= 0) {
+                    val k = java.net.URLDecoder.decode(param.substring(0, idx), "UTF-8")
+                    val v = java.net.URLDecoder.decode(param.substring(idx + 1), "UTF-8")
+                    uriEncode(k) to uriEncode(v)
+                } else {
+                    uriEncode(java.net.URLDecoder.decode(param, "UTF-8")) to ""
+                }
+            }
+            .sortedWith(compareBy({ it.first }, { it.second }))
+            .joinToString("&") { "${it.first}=${it.second}" }
+
+        val utcZone   = java.util.TimeZone.getTimeZone("UTC")
+        val amzDate   = SimpleDateFormat("yyyyMMdd'T'HHmmss'Z'", Locale.US).apply { timeZone = utcZone }.format(signingInstant)
+        val dateStamp = SimpleDateFormat("yyyyMMdd", Locale.US).apply { timeZone = utcZone }.format(signingInstant)
+
+        // For GET/DELETE use SHA-256 of empty string; for PUT/POST use UNSIGNED-PAYLOAD (Ceph compatible)
+        val payloadHash = when (method) {
+            "GET", "DELETE", "HEAD" -> EMPTY_PAYLOAD_SHA256
+            else                    -> "UNSIGNED-PAYLOAD"
+        }
+
+        val canonicalHeaders = "host:$host\nx-amz-content-sha256:$payloadHash\nx-amz-date:$amzDate\n"
+        val signedHeaders    = "host;x-amz-content-sha256;x-amz-date"
+        val canonicalRequest = "$method\n$canonicalUri\n$canonicalQueryString\n$canonicalHeaders\n$signedHeaders\n$payloadHash"
+        val credentialScope  = "$dateStamp/$region/$service/aws4_request"
+        val stringToSign     = "AWS4-HMAC-SHA256\n$amzDate\n$credentialScope\n${sha256Hex(canonicalRequest)}"
+
+        val kDate    = hmacSha256("AWS4$secretKey".toByteArray(Charsets.UTF_8), dateStamp)
+        val kRegion  = hmacSha256(kDate, region)
+        val kService = hmacSha256(kRegion, service)
+        val kSigning = hmacSha256(kService, "aws4_request")
+
+        val signature = hex(hmacSha256(kSigning, stringToSign))
+
+        return SigV4Headers(
+            host = host,
+            amzDate = amzDate,
+            payloadHash = payloadHash,
+            authorization = "AWS4-HMAC-SHA256 Credential=$accessKey/$credentialScope, " +
+                    "SignedHeaders=$signedHeaders, Signature=$signature"
+        )
+    }
+
     /** URI-encodes a string per AWS SigV4 spec (RFC 3986, no double-encoding). */
-    private fun uriEncode(input: String): String {
+    @VisibleForTesting
+    internal fun uriEncode(input: String): String {
         val sb = StringBuilder()
         for (ch in input) {
-            if (ch.isLetterOrDigit() || ch == '-' || ch == '_' || ch == '.' || ch == '~') {
+            // ASCII only. Char.isLetterOrDigit() is UNICODE-aware, so it treated every accented
+            // or non-Latin letter as unreserved and emitted it raw. SigV4 leaves exactly
+            // A-Z a-z 0-9 - _ . ~ unencoded, so a filename with any such character produced a
+            // canonical request the server could not rebuild, and the upload came back 403.
+            val unreserved = (ch in 'A'..'Z') || (ch in 'a'..'z') || (ch in '0'..'9') ||
+                    ch == '-' || ch == '_' || ch == '.' || ch == '~'
+            if (unreserved) {
                 sb.append(ch)
             } else {
                 ch.toString().toByteArray(Charsets.UTF_8).forEach { b ->

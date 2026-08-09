@@ -1,6 +1,7 @@
 package com.dji.recreate2.gimbal
 
 import android.util.Log
+import androidx.annotation.VisibleForTesting
 import dji.sdk.keyvalue.key.GimbalKey
 import dji.sdk.keyvalue.key.KeyTools
 import dji.sdk.keyvalue.value.common.ComponentIndexType
@@ -60,33 +61,51 @@ object GimbalLimits {
                 return
             }
 
-            val p = range.pitch
-            val y = range.yaw
-            var changed = false
-
-            val pMin = p?.min
-            val pMax = p?.max
-            if (pMin != null && pMax != null && pMax > pMin) {
-                pitchMin = pMin + SAFETY_MARGIN_DEG
-                pitchMax = pMax - SAFETY_MARGIN_DEG
-                changed = true
-            }
-
-            val yMin = y?.min
-            val yMax = y?.max
-            if (yMin != null && yMax != null && yMax > yMin) {
-                yawMin = yMin + SAFETY_MARGIN_DEG
-                yawMax = yMax - SAFETY_MARGIN_DEG
-                changed = true
-            }
-
-            if (changed) {
+            if (applyRange(range.pitch?.min, range.pitch?.max, range.yaw?.min, range.yaw?.max)) {
                 isFromAircraft = true
                 Log.d(TAG, "Gimbal range read from aircraft: ${describe()}")
             }
         } catch (e: Exception) {
             Log.w(TAG, "Could not read the gimbal attitude range: ${e.message}")
         }
+    }
+
+    /**
+     * Narrows each supplied range by [SAFETY_MARGIN_DEG] and stores it.
+     *
+     * An axis is taken only when both bounds are present and `max > min`. A missing or inverted
+     * range keeps the current values rather than replacing them with something unusable — a
+     * gimbal whose limits read back as 0..0 must not become a gimbal that cannot move.
+     *
+     * @return true when at least one axis was accepted.
+     */
+    @VisibleForTesting
+    internal fun applyRange(pMin: Double?, pMax: Double?, yMin: Double?, yMax: Double?): Boolean {
+        var changed = false
+
+        if (pMin != null && pMax != null && pMax > pMin) {
+            pitchMin = pMin + SAFETY_MARGIN_DEG
+            pitchMax = pMax - SAFETY_MARGIN_DEG
+            changed = true
+        }
+
+        if (yMin != null && yMax != null && yMax > yMin) {
+            yawMin = yMin + SAFETY_MARGIN_DEG
+            yawMax = yMax - SAFETY_MARGIN_DEG
+            changed = true
+        }
+
+        return changed
+    }
+
+    /** Puts the conservative defaults back. Tests only — this object outlives a single test. */
+    @VisibleForTesting
+    internal fun resetToDefaults() {
+        pitchMin = DEFAULT_PITCH_MIN
+        pitchMax = DEFAULT_PITCH_MAX
+        yawMin = DEFAULT_YAW_MIN
+        yawMax = DEFAULT_YAW_MAX
+        isFromAircraft = false
     }
 
     /** Limits a pitch command to the mechanical range. Returns 0.0 for a non-finite input. */

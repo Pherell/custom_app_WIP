@@ -80,6 +80,15 @@ android {
     kotlinOptions {
         jvmTarget = "1.8"
     }
+
+    testOptions {
+        unitTests {
+            // android.util.Log is a stub in the host JVM and throws "not mocked" by default.
+            // GimbalLimits and CameraProjection both log, so every test touching them would
+            // fail on the logging, not on the logic.
+            isReturnDefaultValues = true
+        }
+    }
 }
 
 dependencies {
@@ -103,5 +112,14 @@ dependencies {
     
     // HTTP OkHttp
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+
+    // Host-side unit tests
+    testImplementation(libs.junit)
+    // Every DJI type lives in the -provided jar, which is compileOnly above and so does not
+    // reach the test source set. Without this the test compiler cannot resolve
+    // ComponentIndexType in CameraProjection.refreshVideoSize's signature. compileOnly is
+    // deliberate: the tests never LOAD a DJI class, and keeping the stub jar off the runtime
+    // classpath stops a stub static initialiser from running on the host.
+    testCompileOnly(libs.dji.sdk.v5.aircraft.provided)
 }
 

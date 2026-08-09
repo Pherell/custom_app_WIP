@@ -1,6 +1,7 @@
 package com.dji.recreate2.gimbal
 
 import android.util.Log
+import androidx.annotation.VisibleForTesting
 import dji.sdk.keyvalue.value.common.ComponentIndexType
 import dji.v5.manager.datacenter.MediaDataCenter
 
@@ -48,17 +49,35 @@ object CameraProjection {
     fun refreshVideoSize(index: ComponentIndexType = ComponentIndexType.LEFT_OR_MAIN) {
         try {
             val info = MediaDataCenter.getInstance().cameraStreamManager?.getAircraftStreamFrameInfo(index)
-            val w = info?.width ?: 0
-            val h = info?.height ?: 0
-            if (w > 0 && h > 0) {
-                videoWidth = w
-                videoHeight = h
-                isVideoSizeKnown = true
-                Log.d(TAG, "Stream size from aircraft: ${w}x$h")
+            if (setVideoSize(info?.width ?: 0, info?.height ?: 0, fromAircraft = true)) {
+                Log.d(TAG, "Stream size from aircraft: ${describe()}")
             }
         } catch (e: Exception) {
             Log.w(TAG, "Could not read the stream size: ${e.message}")
         }
+    }
+
+    /**
+     * The only writer of the frame size. Rejects a non-positive dimension so a failed SDK read
+     * cannot replace a good size with zeros and make every ratio infinite.
+     *
+     * @return true when the size was accepted.
+     */
+    @VisibleForTesting
+    internal fun setVideoSize(w: Int, h: Int, fromAircraft: Boolean): Boolean {
+        if (w <= 0 || h <= 0) return false
+        videoWidth = w
+        videoHeight = h
+        if (fromAircraft) isVideoSizeKnown = true
+        return true
+    }
+
+    /** Puts the fallback frame size back. Tests only — this object outlives a single test. */
+    @VisibleForTesting
+    internal fun resetForTest() {
+        videoWidth = DEFAULT_VIDEO_W
+        videoHeight = DEFAULT_VIDEO_H
+        isVideoSizeKnown = false
     }
 
     /** Vertical field of view for a given horizontal field of view and frame aspect (h/w). */

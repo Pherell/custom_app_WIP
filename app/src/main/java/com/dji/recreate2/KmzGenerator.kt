@@ -1,6 +1,7 @@
 package com.dji.recreate2
 
 import android.content.Context
+import androidx.annotation.VisibleForTesting
 import org.osmdroid.util.GeoPoint
 import java.io.*
 import java.util.zip.ZipEntry
@@ -92,7 +93,8 @@ object KmzGenerator {
         }
     }
 
-    private fun buildTemplateKml(globalAltitude: Double, speed: Double, signalLossAction: Int): String {
+    @VisibleForTesting
+    internal fun buildTemplateKml(globalAltitude: Double, speed: Double, signalLossAction: Int): String {
         val exitOnRCLost = "executeLostAction"
         val executeRCLostAction = when (signalLossAction) {
             0 -> "goBack"
@@ -128,6 +130,15 @@ object KmzGenerator {
         """.trimIndent()
     }
 
+    // Action group ids must be unique inside one wayline file - the aircraft keys actions by
+    // them. The previous scheme offset the camera groups by a flat 100 and gave the interval
+    // group 999, which collided as soon as a route reached 100 waypoints: camera group 0 and
+    // dwell group 100 were both id 100. A survey grid over a moderate area passes 100 points
+    // easily. Interleaving on the waypoint index instead cannot collide at any route length.
+    private fun cameraGroupId(index: Int): Int = index * 2
+    private fun dwellGroupId(index: Int): Int = index * 2 + 1
+    private fun intervalGroupId(waypointCount: Int): Int = waypointCount * 2
+
     /** Renders a single <wpml:action> block. */
     private fun buildAction(actionId: Int, actuatorFunc: String, paramXml: String): String {
         return """
@@ -152,7 +163,8 @@ ${paramXml.prependIndent("                        ")}
         return earthRadius * c
     }
 
-    private fun buildWaylinesWpml(
+    @VisibleForTesting
+    internal fun buildWaylinesWpml(
         waypoints: List<KmzWaypoint>,
         globalSpeed: Double,
         intervalPhoto: Boolean
@@ -365,10 +377,9 @@ ${turnBlock.prependIndent("                  ")}
             }
 
             if (actionXml.isNotEmpty()) {
-                // Offset the group id so it cannot collide with the dwell groups below.
                 sb.append("""
                   <wpml:actionGroup>
-                    <wpml:actionGroupId>${100 + index}</wpml:actionGroupId>
+                    <wpml:actionGroupId>${cameraGroupId(index)}</wpml:actionGroupId>
                     <wpml:actionGroupStartIndex>$index</wpml:actionGroupStartIndex>
                     <wpml:actionGroupEndIndex>$index</wpml:actionGroupEndIndex>
                     <wpml:actionGroupMode>sequence</wpml:actionGroupMode>
@@ -386,7 +397,7 @@ ${turnBlock.prependIndent("                  ")}
             if (wp.dwellTime != null && wp.dwellTime > 0) {
                 sb.append("""
                   <wpml:actionGroup>
-                    <wpml:actionGroupId>$index</wpml:actionGroupId>
+                    <wpml:actionGroupId>${dwellGroupId(index)}</wpml:actionGroupId>
                     <wpml:actionGroupStartIndex>$index</wpml:actionGroupStartIndex>
                     <wpml:actionGroupEndIndex>$index</wpml:actionGroupEndIndex>
                     <wpml:actionGroupMode>sequence</wpml:actionGroupMode>
@@ -412,7 +423,7 @@ ${turnBlock.prependIndent("                  ")}
             sb.append("""
                   <!-- Camera Action: Interval 1 detik di seluruh rute -->
                   <wpml:actionGroup>
-                    <wpml:actionGroupId>999</wpml:actionGroupId>
+                    <wpml:actionGroupId>${intervalGroupId(waypoints.size)}</wpml:actionGroupId>
                     <wpml:actionGroupStartIndex>0</wpml:actionGroupStartIndex>
                     <wpml:actionGroupEndIndex>${waypoints.lastIndex}</wpml:actionGroupEndIndex>
                     <wpml:actionGroupMode>sequence</wpml:actionGroupMode>
