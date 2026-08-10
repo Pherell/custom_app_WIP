@@ -65,6 +65,12 @@ correct.**
 | `mapping/SurveyGrid.kt` | 258 | Survey grid, orbit ring and velocity frame calculations |
 | `geo/GeoMath.kt` | 91 | Metres to degrees conversions |
 | `geo/CameraGeolocator.kt` | 196 | Camera line of sight to ground position, for an aircraft with no rangefinder |
+| `flight/ReturnHomeBudget.kt` | 205 | Whether the charge that is left can still reach the home point |
+| `map/TileTemplate.kt` | 55 | Map tile address, with the axis sequence |
+| `telemetry/TelemetryBuffer.kt` | 105 | Keeps the telemetry when the C2 link stops |
+| `diag/FlightLog.kt` | 130 | Flight log on the tablet, with rotation |
+| `diag/CrashReporter.kt` | 120 | Writes a report when the application stops |
+| `tracking/TouchSelectionGate.kt` | 60 | Which touch is a true target designation |
 
 **NOTE: `MainActivity.kt` has 64 percent of the code. Divide this file before you add a large
 function to it.**

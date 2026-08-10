@@ -73,7 +73,7 @@ These buttons select what the screen shows and what a touch on the map does.
 | LCK | `btnTgpLock` | Starts or stops the targeting pod lock. The gimbal holds a geographic coordinate. The aircraft turns if the coordinate is outside the gimbal pan range. | TEST |
 | FOL | `btnFollowObject` | Makes the gimbal follow the object that the aircraft detects. | TEST |
 | DEL | `btnDeleteSelection` | Stops the object lock. | OK |
-| — | `btnToggleObjectTouch` | Permits a touch on the image to select an object. | OK |
+| OBJ | `btnToggleObjectTouch` | Permits a touch on the image to make a target. **The default is OFF.** The button is amber when it is on. Then use a long touch, or draw a box. A short touch does nothing. | OK |
 | PIP | `btnTogglePip` | Shows or hides the second camera image. | OK |
 | WIDE | `btnLensWide` | Selects the wide lens. The message shows only after the aircraft accepts the command. | TEST |
 | ZOOM | `btnLensZoom` | Selects the zoom lens. | TEST |
@@ -252,6 +252,11 @@ from it. The application does not push to an RTSP address.**
 | `btnWebOdmConfig` | Opens the WebODM window. | OK |
 | `btnGpsTagsConfig` | Opens the coordinate tag window. | OK |
 | `btnSaveGeolocation` | Keeps the target height and the minimum camera angle for the camera target calculation. | OK |
+| `btnSaveRthMargin` | Keeps the cruise speed, the safety factor and the reserve for the return-home margin. | OK |
+| `btnTilePresetOnline` | Puts the ArcGIS address in the map tile field. | OK |
+| `btnTilePresetLocal` | Puts the local tile server address in the field. | OK |
+| `btnSaveTileSource` | Keeps the map tile address. **Start the application again to use it.** | OK |
+| `btnCacheMapArea` | Gets the map tiles for the area on the screen, for operation with no network. | NET |
 
 **CAUTION: The application has no S3 keys in it. The uploads fail with a 403 error until you put
 the keys in the CFG page. This is correct behaviour: an empty key gives a clear error instead of a

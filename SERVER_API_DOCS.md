@@ -88,6 +88,10 @@ Two fields are new in v1.3.0:
 | Field | Type | Meaning |
 |---|---|---|
 | `precision_landing` | Boolean | The aircraft is running a vision-based precision landing now. |
+| `rth_state` | String | `AMPLE`, `COMMITTED`, `CRITICAL` or `UNKNOWN`. Refer to the note below. |
+| `rth_margin_seconds` | Double | Flight time left AFTER the charge for the trip home is put to one side. A negative value means the reserve is spent. |
+| `rth_required_percent` | Double | Charge that the trip home needs, with the safety factor and the reserve. |
+| `rth_burn_measured` | Boolean | True when the discharge rate was measured on this flight. False means the application used its assumed rate. |
 | `object_detection_supported` | Boolean | The aircraft accepted the object detection function. When false, the object follow function stays off. |
 
 Object detection comes from the aircraft, not from the tablet. The aircraft reports a target box
@@ -112,6 +116,23 @@ and a type. Not all aircraft support it, so a server must not assume the field i
   obstacle-avoidance interface, which has no detection data.
 - Object follow uses the detected target. Earlier builds calculated the error from the gimbal
   command that the loop had just sent, so the camera followed nothing.
+**NOTE: `rth_state` gives whether the aircraft can still reach the home point. A charge percentage
+alone cannot give this: 25 percent is sufficient at 100 m and not sufficient at 3 km. The states
+are: `AMPLE` (more than 1.5 times the necessary charge), `COMMITTED` (1.0 to 1.5 times — return
+now), `CRITICAL` (less than the trip home plus the reserve) and `UNKNOWN`.**
+
+**WARNING: `CRITICAL` is a message for the operator. The application does NOT go home on its own
+for this. The link-loss failsafe has that function. Two independent functions that can fly the
+aircraft is a worse condition than the one it corrects.**
+
+**NOTE: `UNKNOWN` occurs when the aircraft is on the ground, when there is no home point, or when
+the application has not yet measured the discharge rate. The application never gives `CRITICAL`
+from data that it does not have.**
+
+**NOTE: The telemetry buffer holds frames when the C2 link stops, and sends them again at QoS 1
+after the connection returns. These frames keep their original `timestamp`. Use the `timestamp`
+field and not the arrival time, or the flight path will not be correct.**
+
 - Precision landing is on by default. The telemetry has a `precision_landing` field.
 - The landing-protection question now goes to the operator. Earlier builds answered it
   automatically and the check did not operate.

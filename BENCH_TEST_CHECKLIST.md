@@ -368,6 +368,85 @@ immediately with the joystick. Report this result: the correction is not suffici
 
 ---
 
+### Test 14 — The return-home margin
+
+**Time:** 10 minutes on the ground, then in flight. **Propellers:** not for the first part.
+
+1. On the ground, set the home point. Look at the battery indicator.
+
+   **PASS:** The state is `UNKNOWN`. The application must not give an alarm when the aircraft is
+   on the ground or before it measures the discharge rate.
+
+2. In flight, fly away from the home point and look at the battery colour and the log.
+
+   **PASS:** The colour changes to amber at `COMMITTED` and to red at `CRITICAL`. The message
+   shows one time at each change and not continuously.
+
+3. Compare the margin at the turn with the charge that is left after the landing.
+
+   **PASS:** The margin was not more than the true value. A margin that is too large is dangerous;
+   a margin that is too small is only an inconvenience.
+
+**WARNING: The application does NOT go home on its own for this. Make sure that it does not. If
+the aircraft goes home without a command, two functions have control and this is a defect.**
+
+---
+
+### Test 15 — The map with no network
+
+**Time:** 15 minutes. **Propellers:** not necessary.
+
+1. With a network, move the map to your operation area. SYS → CFG → CACHE VISIBLE MAP AREA.
+
+   **PASS:** The log gives the number of tiles.
+
+2. Put the tablet in flight mode. Start the application again. Move the map to the same area.
+
+   **PASS:** The map shows. Before this correction it was empty.
+
+3. SYS → CFG → LOCAL SERVER → SAVE. Start the application again.
+
+   **PASS:** The tiles come from your `tileserver-gl` container.
+   **PASS: Make sure that the map is CORRECT and not mixed.** A mixed map has correct tiles in
+   incorrect positions. Look at a coast or a road: it must be continuous.
+
+**CAUTION: ArcGIS uses the sequence `{z}/{y}/{x}`. A tileserver-gl uses `{z}/{x}/{y}`. An
+incorrect sequence gives a map that appears correct but is not.**
+
+---
+
+### Test 16 — The telemetry buffer
+
+**Time:** 10 minutes. **Propellers:** not necessary.
+
+1. Connect to the C2 server. Make sure that the flight path shows.
+2. Stop the MQTT broker for 60 seconds. Start it again.
+
+   **PASS:** The flight path has no space in it after the connection returns. The application
+   sends the frames that it kept.
+   **PASS:** The frames have their original time. The flight path must not show all the frames at
+   the position where the connection returned.
+
+---
+
+### Test 17 — The crash report and the flight log
+
+**Time:** 10 minutes. **Propellers:** not necessary.
+
+1. Operate the application for 30 minutes. Open SYS → LOG.
+
+   **PASS:** The log file on the tablet has the full session. The screen shows the last part only.
+
+2. Cause a crash in a debug version. Start the application again.
+
+   **PASS:** A window gives the report and the buttons SHARE, KEEP and DELETE.
+   **PASS:** The report gives the aircraft type, the application version and the last log lines.
+
+**NOTE: A crash report has positions and target coordinates. Send it only where this is
+permitted.**
+
+---
+
 ## 6. Results
 
 | Test | Result | Note |
@@ -385,6 +464,10 @@ immediately with the joystick. Report this result: the correction is not suffici
 | 11 Object detection | ☐ Pass ☐ Fail ☐ N/A | |
 | 12 Video stream | ☐ Pass ☐ Fail | |
 | 13 Mission speed | ☐ Pass ☐ Fail | |
+| 14 Return-home margin | ☐ Pass ☐ Fail | Margin at the turn: |
+| 15 Map with no network | ☐ Pass ☐ Fail | Mixed map? ☐ No ☐ Yes |
+| 16 Telemetry buffer | ☐ Pass ☐ Fail | |
+| 17 Crash report and log | ☐ Pass ☐ Fail | |
 
 ---
 
