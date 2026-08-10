@@ -1509,6 +1509,7 @@ class MainActivity : AppCompatActivity() {
         objectTrackingOverlay?.onSelectionRejectedListener = { reason ->
             runOnUiThread { showToast(reason) }
         }
+        findViewById<TextView?>(R.id.btnLoiter)?.setOnClickListener { startLoiter() }
         findViewById<TextView>(R.id.btnToggleJoysticks).setOnClickListener { toggleJoysticks() }
         findViewById<TextView>(R.id.btnSystem).setOnClickListener { showSystemDialog() }
 
@@ -3508,6 +3509,12 @@ class MainActivity : AppCompatActivity() {
     }
     
     private fun handleJoystickCancelMission(pX: Float, pY: Float) {
+        // The pilot always wins. A loiter is the app flying a circle; a stick input means the
+        // operator wants the aircraft back, and waiting for them to find the LTR button is the
+        // wrong answer.
+        if (isLoiterActive && (pX != 0f || pY != 0f)) {
+            stopLoiter("joystick override")
+        }
         if (isMissionExecuting && (pX != 0f || pY != 0f)) {
             isMissionExecuting = false
             val vs = dji.v5.manager.aircraft.virtualstick.VirtualStickManager.getInstance()
@@ -3647,6 +3654,9 @@ class MainActivity : AppCompatActivity() {
         mapTileTemplate = sharedPrefs.getString("mapTileTemplate", null)
             ?.takeIf { com.dji.recreate2.map.TileTemplate.isValid(it) }
             ?: com.dji.recreate2.map.TileTemplate.ARCGIS_SATELLITE
+        loiterRadiusM = sharedPrefs.getFloat("loiterRadiusM", 100.0f).toDouble()
+        loiterAltitudeM = sharedPrefs.getFloat("loiterAltitudeM", 80.0f).toDouble()
+        loiterClockwise = sharedPrefs.getBoolean("loiterClockwise", true)
         footprintOverlayEnabled = sharedPrefs.getBoolean("footprintOverlayEnabled", true)
         coverageTrailEnabled = sharedPrefs.getBoolean("coverageTrailEnabled", false)
         cruiseSpeedMps = sharedPrefs.getFloat("cruiseSpeedMps", 8.0f).toDouble()
@@ -3672,6 +3682,9 @@ class MainActivity : AppCompatActivity() {
             putFloat("minDepressionDeg", minDepressionDeg.toFloat())
             putBoolean("touchDesignateEnabled", touchDesignateEnabled)
             putString("mapTileTemplate", mapTileTemplate)
+            putFloat("loiterRadiusM", loiterRadiusM.toFloat())
+            putFloat("loiterAltitudeM", loiterAltitudeM.toFloat())
+            putBoolean("loiterClockwise", loiterClockwise)
             putBoolean("footprintOverlayEnabled", footprintOverlayEnabled)
             putBoolean("coverageTrailEnabled", coverageTrailEnabled)
             putFloat("cruiseSpeedMps", cruiseSpeedMps.toFloat())
@@ -4157,6 +4170,8 @@ class MainActivity : AppCompatActivity() {
                         // answer that, so the C2 side gets the margin and the state, not just
                         // the charge. No `type` key here - the server routes position frames on
                         // its absence.
+                        // C2 must know the aircraft is committed to orbiting a point.
+                        hw.put("loiter_active", isLoiterActive)
                         lastBudget?.let { budget ->
                             hw.put("rth_state", budget.state.name)
                             putNum(hw, "rth_margin_seconds", budget.marginSec)
@@ -5044,9 +5059,168 @@ class MainActivity : AppCompatActivity() {
                 findViewById<TextView>(R.id.btnTgpLock)?.setTextColor(android.graphics.Color.YELLOW)
             }
         }
+        stopLoiter("tracking stopped")
         val gimbalSpeedKey = KeyTools.createKey(GimbalKey.KeyRotateBySpeed, ComponentIndexType.LEFT_OR_MAIN)
         runOnUiThread {
             KeyManager.getInstance().performAction(gimbalSpeedKey, GimbalSpeedRotation(0.0, 0.0, 0.0, CtrlInfo()), null)
+        }
+    }
+
+    // --- Tactical loiter ----------------------------------------------------------------------
+    @Volatile private var isLoiterActive = false
+    private var loiterThread: Thread? = null
+    private var loiterRadiusM = 100.0
+    private var loiterAltitudeM = 80.0
+    private var loiterClockwise = true
+
+    /**
+     * Orbits the designated target with the camera slaved to it, until stopped.
+     *
+     * **This flies the aircraft.** Every interlock below is deliberate:
+     *
+     *  - it will not start unless the app already owns the virtual stick, so it cannot take
+     *    control from the pilot or from a running mission;
+     *  - a joystick input stops it, because the pilot always wins;
+     *  - it stops on link loss and leaves the existing failsafe to act, rather than adding a
+     *    second thing that can fly the aircraft home;
+     *  - the return-home budget keeps running, because a loiter is exactly where an aircraft
+     *    quietly spends its reserve.
+     */
+    private fun startLoiter() {
+        if (isLoiterActive) {
+            stopLoiter("operator")
+            return
+        }
+
+        val target = resolveTagTarget()
+        if (target == null || target.source == "DRONE_GPS") {
+            // The aircraft's own position is not a target to orbit.
+            showToast("⚠️ No target to loiter on. Fire the laser, tap a target, or lock the pod.")
+            return
+        }
+
+        val reject = com.dji.recreate2.flight.LoiterController.rejectReason(
+            target.lat, target.lon, loiterRadiusM, loiterAltitudeM
+        )
+        if (reject != null) {
+            showToast("⚠️ $reject")
+            return
+        }
+        if (!isFlying) {
+            showToast("⚠️ Loiter needs the aircraft in the air.")
+            return
+        }
+        // The same authority test the targeting-pod yaw assist uses. Taking the sticks from the
+        // pilot or from a running mission would be worse than not loitering.
+        if (!canCommandAircraftYawForTgp()) {
+            showToast("⚠️ Loiter needs stick authority: enable the joysticks and stop any mission.")
+            return
+        }
+
+        val state = com.dji.recreate2.flight.LoiterController.LoiterState(
+            targetLat = target.lat,
+            targetLon = target.lon,
+            targetAltM = target.alt.takeIf { it.isFinite() } ?: 0.0,
+            radiusM = loiterRadiusM,
+            altitudeM = loiterAltitudeM,
+            clockwise = loiterClockwise
+        )
+
+        isLoiterActive = true
+        updateLoiterUi()
+        log("Loiter started on ${target.name} (${target.source}) r=${loiterRadiusM.toInt()}m alt=${loiterAltitudeM.toInt()}m")
+        showToast("🔄 LOITER on ${target.name}: ${loiterRadiusM.toInt()}m radius")
+
+        val vs = dji.v5.manager.aircraft.virtualstick.VirtualStickManager.getInstance()
+        loiterThread = Thread({
+            val param = com.dji.recreate2.flight.ConfinedSpaceFlightManager.createVirtualStickParam()
+            try {
+                while (!Thread.currentThread().isInterrupted && isLoiterActive) {
+                    if (isFinishing || !droneConnected) {
+                        runOnUiThread { stopLoiter("aircraft disconnected") }
+                        break
+                    }
+                    if (!isFlying) {
+                        runOnUiThread { stopLoiter("aircraft landed") }
+                        break
+                    }
+
+                    val cmd = com.dji.recreate2.flight.LoiterController.step(
+                        state = state,
+                        droneLat = droneLat,
+                        droneLon = droneLon,
+                        droneAltM = droneAlt,
+                        droneYawDeg = droneYaw,
+                        tangentialSpeedMps = loiterTangentialSpeed(),
+                        clampPitch = { com.dji.recreate2.gimbal.GimbalLimits.clampPitch(it) },
+                        clampYaw = { com.dji.recreate2.gimbal.GimbalLimits.clampYaw(it) }
+                    )
+
+                    if (cmd == null) {
+                        // No sane command: hold rather than guess.
+                        applyVelocitySetpoint(param, 0.0, 0.0, 0.0, 0.0)
+                        vs.sendVirtualStickAdvancedParam(param)
+                    } else {
+                        applyVelocitySetpoint(
+                            param,
+                            cmd.groundBearingDeg,
+                            cmd.horizontalSpeedMps,
+                            cmd.verticalSpeedMps,
+                            cmd.yawRateDegPerSec
+                        )
+                        vs.sendVirtualStickAdvancedParam(param)
+
+                        val rotation = dji.sdk.keyvalue.value.gimbal.GimbalAngleRotation().apply {
+                            mode = dji.sdk.keyvalue.value.gimbal.GimbalAngleRotationMode.ABSOLUTE_ANGLE
+                            pitch = cmd.gimbalPitchDeg
+                            yaw = cmd.gimbalYawDeg
+                            roll = 0.0
+                            duration = 0.2
+                        }
+                        val gimbalAngleKey = KeyTools.createKey(GimbalKey.KeyRotateByAngle, ComponentIndexType.LEFT_OR_MAIN)
+                        runOnUiThread {
+                            KeyManager.getInstance().performAction(gimbalAngleKey, rotation, null)
+                        }
+                    }
+
+                    Thread.sleep(100) // 10 Hz; virtual stick needs 5 Hz or better.
+                }
+            } catch (e: InterruptedException) {
+                Thread.currentThread().interrupt()
+            } catch (e: Exception) {
+                log("Loiter loop failed: ${e.message}")
+                runOnUiThread { stopLoiter("error") }
+            }
+        }, "TacticalLoiter")
+        loiterThread?.start()
+    }
+
+    /** Orbit speed, held below the mission ceiling. */
+    private fun loiterTangentialSpeed(): Double =
+        (loiterRadiusM * 0.08).coerceIn(2.0, MAX_MISSION_SPEED_MPS)
+
+    /** Stops the orbit and zeroes the sticks. Safe to call when no loiter is running. */
+    private fun stopLoiter(reason: String) {
+        if (!isLoiterActive) return
+        isLoiterActive = false
+        loiterThread?.interrupt()
+        loiterThread = null
+        try {
+            zeroVirtualSticks()
+        } catch (e: Exception) {
+            log("Loiter stop: could not zero the sticks: ${e.message}")
+        }
+        updateLoiterUi()
+        log("Loiter stopped ($reason)")
+        runOnUiThread { showToast("LOITER STOPPED ($reason)") }
+    }
+
+    private fun updateLoiterUi() {
+        runOnUiThread {
+            findViewById<TextView?>(R.id.btnLoiter)?.setTextColor(
+                if (isLoiterActive) android.graphics.Color.parseColor("#FFB300")
+                else android.graphics.Color.parseColor("#00FF00")
+            )
         }
     }
 
@@ -6698,6 +6872,37 @@ class MainActivity : AppCompatActivity() {
             objectTrackingOverlay?.isAiDetectionBoxesVisible = newState
             refreshAiBoxButtonUI()
             showToast(if (newState) "🤖 AI Object Detection Boxes: VISIBLE" else "🤖 AI Object Detection Boxes: HIDDEN")
+        }
+
+        // Tactical loiter.
+        val etLoiterRadius = dialog.findViewById<android.widget.EditText?>(R.id.etLoiterRadius)
+        val etLoiterAltitude = dialog.findViewById<android.widget.EditText?>(R.id.etLoiterAltitude)
+        val btnLoiterDirection = dialog.findViewById<android.widget.Button?>(R.id.btnLoiterDirection)
+        etLoiterRadius?.setText(String.format(java.util.Locale.US, "%.0f", loiterRadiusM))
+        etLoiterAltitude?.setText(String.format(java.util.Locale.US, "%.0f", loiterAltitudeM))
+        fun refreshLoiterDirection() {
+            btnLoiterDirection?.text =
+                if (loiterClockwise) "LOITER DIRECTION: CLOCKWISE" else "LOITER DIRECTION: COUNTER-CW"
+        }
+        refreshLoiterDirection()
+        btnLoiterDirection?.setOnClickListener {
+            loiterClockwise = !loiterClockwise
+            refreshLoiterDirection()
+            saveConfig()
+        }
+        dialog.findViewById<android.widget.Button?>(R.id.btnSaveLoiter)?.setOnClickListener {
+            val r = etLoiterRadius?.text?.toString()?.trim()?.toDoubleOrNull()
+            val alt = etLoiterAltitude?.text?.toString()?.trim()?.toDoubleOrNull()
+            if (r != null && r.isFinite()) {
+                loiterRadiusM = r.coerceIn(com.dji.recreate2.flight.LoiterController.MIN_RADIUS_M, 500.0)
+            }
+            if (alt != null && alt.isFinite()) {
+                loiterAltitudeM = alt.coerceIn(com.dji.recreate2.flight.LoiterController.MIN_ALTITUDE_M, 120.0)
+            }
+            etLoiterRadius?.setText(String.format(java.util.Locale.US, "%.0f", loiterRadiusM))
+            etLoiterAltitude?.setText(String.format(java.util.Locale.US, "%.0f", loiterAltitudeM))
+            saveConfig()
+            showToast("Loiter: ${loiterRadiusM.toInt()}m radius at ${loiterAltitudeM.toInt()}m")
         }
 
         // Sensor coverage on the satellite map.
