@@ -447,6 +447,88 @@ permitted.**
 
 ---
 
+### Test 14 — The sensor footprint
+
+**Time:** 5 minutes. **Propellers:** not necessary.
+
+1. Connect the aircraft. Go to MAP mode. Make sure SYS - CFG - SENSOR FOOTPRINT is ON.
+2. Move the gimbal down and up.
+
+   **PASS:** A blue shape on the satellite image shows the ground that the camera covers. The
+   shape becomes smaller when the camera looks more down.
+
+3. Move the camera up to the horizon.
+
+   **PASS:** The shape becomes amber with a broken line. This shows that the far edge goes past
+   the horizon and is not confirmed coverage.
+
+4. Move the camera above the horizon.
+
+   **PASS:** The shape goes off the map. It does not stay in the last position.
+
+5. Move the camera to look straight down.
+
+   **PASS:** The shape shows below the aircraft. **FAIL: no shape.** This condition gave no shape
+   before commit 9de96be.
+
+---
+
+### Test 15 — Tactical loiter ⚠ FLIGHT
+
+**Time:** 20 minutes. **Propellers:** necessary.
+
+**WARNING: This test flies the aircraft in a circle without the operator. Do it last, in an open
+area, and keep your hands on the sticks. The first flight is a test of the control law.**
+
+**Do Test 2 first. Do not do this test if Test 2 failed.**
+
+First, on the ground (propellers removed), make sure that the application refuses:
+
+1. Touch LTR with no target.
+
+   **PASS:** A message says that there is no target.
+
+2. Make a target (laser, or touch the image). Touch LTR with the joysticks off.
+
+   **PASS:** A message says that the loiter needs stick authority.
+
+3. Touch LTR with the aircraft on the ground.
+
+   **PASS:** A message says that the aircraft must be in the air.
+
+**FAIL for any of the three: the aircraft can start a loiter when it must not. Stop the test.**
+
+Then, in the air:
+
+4. Set the radius to 100 m and the altitude to 80 m in SYS - CFG.
+5. Designate a target. Turn the joysticks on. Touch LTR.
+
+   **PASS:** The aircraft goes to the circle and turns around the target. The LTR button is amber.
+
+6. Look at the flight path on the map.
+
+   **PASS:** The path is a **circle**. **FAIL: the path is a spiral** — the radius correction is
+   not correct. Stop the loiter with the joystick and report this result.
+
+7. Look at the video during one full circle.
+
+   **PASS:** The target stays near the centre of the image.
+
+8. Change the altitude during the circle (use the throttle after you stop the loiter, then start
+   it again at the new height).
+
+   **PASS:** The camera angle changes and the target stays in the image. This is the correction of
+   the frozen gimbal angle. In the old planned orbit the target went out of the image.
+
+9. Move a joystick.
+
+   **PASS:** The loiter stops immediately and the aircraft answers the sticks.
+
+**WARNING: Step 9 is the most important test on this page. If the loiter does not stop when you
+move a stick, do not use this function.**
+
+---
+
 ## 6. Results
 
 | Test | Result | Note |
@@ -464,6 +546,8 @@ permitted.**
 | 11 Object detection | ☐ Pass ☐ Fail ☐ N/A | |
 | 12 Video stream | ☐ Pass ☐ Fail | |
 | 13 Mission speed | ☐ Pass ☐ Fail | |
+| 14 Sensor footprint | ☐ Pass ☐ Fail | |
+| 15 Tactical loiter | ☐ Pass ☐ Fail | Path circular? |
 | 14 Return-home margin | ☐ Pass ☐ Fail | Margin at the turn: |
 | 15 Map with no network | ☐ Pass ☐ Fail | Mixed map? ☐ No ☐ Yes |
 | 16 Telemetry buffer | ☐ Pass ☐ Fail | |
@@ -481,3 +565,5 @@ Stop the test and report the result when one of these occurs:
 3. **Test 13 shows that the speed increases.** The aircraft has no speed control.
 4. **The application stops at any time.** Get the crash log before you start the application
    again.
+5. **Test 15 step 9 fails.** A loiter that does not stop on a stick input has taken the aircraft
+   from the pilot. Do not use the function.
