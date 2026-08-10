@@ -302,6 +302,83 @@ Sent on the **same telemetry topic** when an Enterprise drone (e.g., M3T) fires 
 | `lat` / `lon` | Double | Calculated GPS coordinates of the **object being targeted** (not the drone). |
 | `alt` | Double | Calculated altitude of the target object. |
 
+**NOTE: The application sends this message only when `laserMeasureState` is `NORMAL`. It does not
+send a measurement that the laser refused (`TOO_CLOSE`, `TOO_FAR`, `NO_SIGNAL`, `OUT_OF_RANGE`).**
+
+---
+
+### 3.2A Camera Target Telemetry
+
+Sent on the **same telemetry topic** when the application calculates a target position from the
+camera. This occurs when the operator touches a target in the image, or when the C2 server sends a
+track command. An aircraft with no laser rangefinder uses this method.
+
+```json
+{
+  "type": "camera_target",
+  "timestamp": 1690000006000,
+  "lat": -6.2050,
+  "lon": 106.8165,
+  "ground_range_m": 214.5,
+  "slant_range_m": 236.6,
+  "depression_deg": 25.0,
+  "estimated_error_m": 10.5,
+  "source": "CAMERA_GEO"
+}
+```
+
+| Field | Type | Description |
+| :--- | :--- | :--- |
+| `type` | String | Always `"camera_target"`. |
+| `timestamp` | Long | Epoch milliseconds of the calculation. |
+| `lat` / `lon` | Double | Calculated position of the target, not of the aircraft. |
+| `ground_range_m` | Double | Horizontal distance from the aircraft to the target. |
+| `slant_range_m` | Double | Straight-line distance from the aircraft to the target. |
+| `depression_deg` | Double | Angle of the camera below horizontal. Always positive. |
+| `estimated_error_m` | Double | Radius of the probable error. Refer to the WARNING below. |
+| `source` | String | Always `"CAMERA_GEO"`. |
+
+**WARNING: A camera target is an ESTIMATE. A laser target is a MEASUREMENT. The camera method
+assumes flat ground at a height that the operator gives. Do not show the two with the same symbol.
+Use `estimated_error_m` to show the difference.**
+
+The error increases quickly when the camera comes near to horizontal. At 100 m height with one
+degree of angle uncertainty:
+
+| Camera angle below horizontal | `estimated_error_m` |
+|---|---|
+| 45 degrees | 3.9 |
+| 25 degrees | 10.5 |
+| 10 degrees | 58.7 |
+
+**NOTE: The application refuses to make a fix below a minimum angle. The default value is 15
+degrees. It sends no message in that condition.**
+
+---
+
+### 3.2B How the server must divide these messages
+
+**CAUTION: `lrf_target`, `camera_target` and `grid_mission` use the telemetry topic, but they are
+not position frames. They have no `drone_id`, no `location` object and no `hardware` object.**
+
+A position frame has no `type` field. Use this rule:
+
+```js
+const data = JSON.parse(message.toString());
+if (data.type) {
+  // A report. Send it to the interface. Do not put it in the telemetry table.
+  return;
+}
+// A position frame. Put it in the telemetry table.
+```
+
+The aircraft identifier for a report comes from the topic (`dji-sdk/fleet/{clientId}/telemetry`),
+not from the message.
+
+**NOTE: Before the correction of 2026-08-09 the backend put each report in the telemetry table.
+The `drone_id` column permits a null value, so the operation was successful and made a row with
+null values. Each laser measurement and each camera target made one row of refuse.**
+
 ---
 
 ### 3.3 Grid Mission Broadcast

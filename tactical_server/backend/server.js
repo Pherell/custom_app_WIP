@@ -61,6 +61,23 @@ mqttClient.on('message', async (topic, message) => {
   } else if (topic.startsWith('dji-sdk/fleet/') && topic.endsWith('/telemetry')) {
     try {
       const data = JSON.parse(message.toString());
+
+      // Target reports share the telemetry topic but are NOT position frames.
+      //
+      // `lrf_target` and `camera_target` carry a flat lat/lon plus range fields - no drone_id,
+      // no location{} and no hardware{}. Every field below therefore resolved to undefined, and
+      // because drone_id has no NOT NULL constraint the INSERT succeeded and wrote a row of
+      // nulls. One junk row per laser reading, and one per camera designation - which now fires
+      // on every touch-to-track.
+      //
+      // A position frame has no `type` field, so this discriminates cleanly. Forward the report
+      // for a live consumer instead of storing it as a track point.
+      if (data.type) {
+        const droneIdFromTopic = topic.split('/')[2];
+        io.emit('target_report', { drone_id: droneIdFromTopic, ...data });
+        return;
+      }
+
       const droneId = data.drone_id;
       const lat = data.location?.latitude;
       const lon = data.location?.longitude;
