@@ -82,7 +82,17 @@ class ObjectTrackingOverlayView @JvmOverloads constructor(
     var isTrackingActive = false
         private set
 
-    var isTouchSelectionEnabled = true
+    /**
+     * Whether a touch on the video designates a target.
+     *
+     * **Defaults to OFF.** This used to default to true, and the overlay ships `visibility="visible"`,
+     * so designation was live from the moment the app opened. A designation locks the target,
+     * drives the gimbal, moves the targeting-pod lock and publishes a `camera_target` to the C2
+     * server - too much to hang off a stray thumb on the video.
+     *
+     * MainActivity restores the operator's saved choice on start.
+     */
+    var isTouchSelectionEnabled = false
     var isAiDetectionBoxesVisible = true
 
     val targetBoundingBox = RectF()
@@ -107,6 +117,16 @@ class ObjectTrackingOverlayView @JvmOverloads constructor(
     var onTargetLockedListener: ((normX: Float, normY: Float, normWidth: Float, normHeight: Float) -> Unit)? = null
     var onTargetUnlockedListener: (() -> Unit)? = null
 
+    /**
+     * Fires when a touch was NOT accepted as a designation, with a reason to show the operator.
+     * Without this a rejected tap is indistinguishable from a broken overlay.
+     */
+    var onSelectionRejectedListener: ((reason: String) -> Unit)? = null
+
+    private var touchDownAtMs = 0L
+    private val longPressMs: Long
+        get() = android.view.ViewConfiguration.getLongPressTimeout().toLong()
+
     override fun onTouchEvent(event: MotionEvent): Boolean {
         if (visibility != VISIBLE || !isTouchSelectionEnabled) return false
 
@@ -114,6 +134,7 @@ class ObjectTrackingOverlayView @JvmOverloads constructor(
             MotionEvent.ACTION_DOWN -> {
                 startX = event.x
                 startY = event.y
+                touchDownAtMs = event.eventTime
                 isDragging = true
                 dragStartBox.set(startX, startY, startX, startY)
                 invalidate()
@@ -130,13 +151,37 @@ class ObjectTrackingOverlayView @JvmOverloads constructor(
                 }
                 return true
             }
+            MotionEvent.ACTION_CANCEL -> {
+                // The gesture was taken over by a parent or interrupted. Without this the drag
+                // box stayed on screen and the next ACTION_UP could designate from stale points.
+                isDragging = false
+                invalidate()
+                return true
+            }
             MotionEvent.ACTION_UP -> {
                 if (isDragging) {
                     isDragging = false
                     val dx = Math.abs(event.x - startX)
                     val dy = Math.abs(event.y - startY)
 
-                    if (dx < 30f && dy < 30f) {
+                    // A drag is deliberate and is taken at once. A tap must be HELD, because a
+                    // tap is what happens by accident - and a designation now reaches the C2
+                    // server, not just the overlay.
+                    val decision = com.dji.recreate2.tracking.TouchSelectionGate.evaluate(
+                        dxPx = dx,
+                        dyPx = dy,
+                        heldMs = event.eventTime - touchDownAtMs,
+                        longPressMs = longPressMs,
+                        armed = isTouchSelectionEnabled
+                    )
+                    if (decision is com.dji.recreate2.tracking.TouchSelectionGate.Decision.Rejected) {
+                        invalidate()
+                        onSelectionRejectedListener?.invoke(decision.reason)
+                        return true
+                    }
+
+                    if (dx < com.dji.recreate2.tracking.TouchSelectionGate.DRAG_SLOP_PX &&
+                        dy < com.dji.recreate2.tracking.TouchSelectionGate.DRAG_SLOP_PX) {
                         // Check if tap hit a detected AI object box
                         val w = width.toFloat()
                         val h = height.toFloat()

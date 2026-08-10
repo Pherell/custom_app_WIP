@@ -230,6 +230,29 @@ class MainActivity : AppCompatActivity() {
     /** Below this depression angle a camera fix is refused as too uncertain to be useful. */
     private var minDepressionDeg = com.dji.recreate2.geo.CameraGeolocator.DEFAULT_MIN_DEPRESSION_DEG
 
+    /**
+     * Whether a touch on the video designates a target. Defaults to OFF, and survives a restart.
+     * Refer to [com.dji.recreate2.tracking.TouchSelectionGate] for why.
+     */
+    private var touchDesignateEnabled = false
+
+    // --- Return-home budget ------------------------------------------------------------------
+    /** Cruise speed assumed for the trip home, m/s. */
+    private var cruiseSpeedMps = 8.0
+    /** Multiplier on the trip home before the fixed reserve is added. */
+    private var rthSafetyFactor = 1.3
+    /** Flat reserve on top of the trip home, seconds. */
+    private var rthFixedReserveSec = 60.0
+
+    /**
+     * Battery readings for the observed burn rate. Bounded, and cleared at take-off so a rate
+     * measured on the previous flight cannot describe this one.
+     */
+    private val burnSamples = java.util.concurrent.CopyOnWriteArrayList<com.dji.recreate2.flight.ReturnHomeBudget.Sample>()
+    private val BURN_SAMPLE_LIMIT = 60
+
+    @Volatile private var lastBudget: com.dji.recreate2.flight.ReturnHomeBudget.Budget? = null
+
     /** Ask the aircraft to use its vision-based precision landing on descent. */
     private var precisionLandingEnabled = true
     /**
@@ -1396,11 +1419,28 @@ class MainActivity : AppCompatActivity() {
             commitTag(resolveTagTarget())
         }
         val btnToggleObjectTouch = findViewById<TextView>(R.id.btnToggleObjectTouch)
+
+        // Restore the operator's saved choice. The default is OFF: designating drives the gimbal,
+        // moves the targeting-pod lock and publishes a camera_target to the C2 server, and the
+        // overlay is visible from launch, so an always-armed designator meant a stray thumb on
+        // the video reported a target.
+        objectTrackingOverlay?.isTouchSelectionEnabled = touchDesignateEnabled
+        updateObjectTouchUi(btnToggleObjectTouch)
+
         btnToggleObjectTouch?.setOnClickListener {
-            val newState = !(objectTrackingOverlay?.isTouchSelectionEnabled ?: false)
-            objectTrackingOverlay?.isTouchSelectionEnabled = newState
-            btnToggleObjectTouch.setTextColor(if (newState) android.graphics.Color.parseColor("#00FFFF") else android.graphics.Color.parseColor("#AAAAAA"))
-            showToast(if (newState) "🎯 Touch Object Selection: ENABLED (Tap/Drag Feed)" else "✋ Touch Object Selection: DISABLED (Gestures Active)")
+            touchDesignateEnabled = !touchDesignateEnabled
+            objectTrackingOverlay?.isTouchSelectionEnabled = touchDesignateEnabled
+            updateObjectTouchUi(btnToggleObjectTouch)
+            saveConfig()
+            showToast(
+                if (touchDesignateEnabled) "🎯 Touch designation ARMED - hold to designate, or drag a box"
+                else "✋ Touch designation OFF"
+            )
+        }
+
+        // A rejected touch must say why. Silence is indistinguishable from a broken overlay.
+        objectTrackingOverlay?.onSelectionRejectedListener = { reason ->
+            runOnUiThread { showToast(reason) }
         }
         findViewById<TextView>(R.id.btnToggleJoysticks).setOnClickListener { toggleJoysticks() }
         findViewById<TextView>(R.id.btnSystem).setOnClickListener { showSystemDialog() }
@@ -3533,6 +3573,11 @@ class MainActivity : AppCompatActivity() {
             "minDepressionDeg",
             com.dji.recreate2.geo.CameraGeolocator.DEFAULT_MIN_DEPRESSION_DEG.toFloat()
         ).toDouble()
+        // Off unless the operator armed it and the app remembered.
+        touchDesignateEnabled = sharedPrefs.getBoolean("touchDesignateEnabled", false)
+        cruiseSpeedMps = sharedPrefs.getFloat("cruiseSpeedMps", 8.0f).toDouble()
+        rthSafetyFactor = sharedPrefs.getFloat("rthSafetyFactor", 1.3f).toDouble()
+        rthFixedReserveSec = sharedPrefs.getFloat("rthFixedReserveSec", 60.0f).toDouble()
     }
 
     private fun saveConfig() {
@@ -3551,6 +3596,10 @@ class MainActivity : AppCompatActivity() {
             putBoolean("autoConfirmLanding", autoConfirmLanding)
             putFloat("targetElevationOffsetM", targetElevationOffset.toFloat())
             putFloat("minDepressionDeg", minDepressionDeg.toFloat())
+            putBoolean("touchDesignateEnabled", touchDesignateEnabled)
+            putFloat("cruiseSpeedMps", cruiseSpeedMps.toFloat())
+            putFloat("rthSafetyFactor", rthSafetyFactor.toFloat())
+            putFloat("rthFixedReserveSec", rthFixedReserveSec.toFloat())
             apply()
         }
     }
@@ -3905,6 +3954,15 @@ class MainActivity : AppCompatActivity() {
         timer.scheduleAtFixedRate(object : java.util.TimerTask() {
             override fun run() {
                 if (isFinishing || isDestroyed) return
+
+                // Before the C2 gate on purpose. The return-home margin is for the OPERATOR, and
+                // it matters most when the server link is down, not least.
+                try {
+                    updateReturnHomeBudget()
+                } catch (e: Exception) {
+                    android.util.Log.e("Telemetry", "Return-home budget tick failed", e)
+                }
+
                 if (!::mqttService.isInitialized || !mqttService.isConnected) return
                 try {
                     val payload = buildTelemetryPayload() ?: return
@@ -4010,6 +4068,16 @@ class MainActivity : AppCompatActivity() {
                         }
                         hw.put("gps_fix_type", droneGpsFixType)
                         hw.put("rtk_supported", rtkSupported)
+                        // Whether the aircraft can still reach home. A percentage alone cannot
+                        // answer that, so the C2 side gets the margin and the state, not just
+                        // the charge. No `type` key here - the server routes position frames on
+                        // its absence.
+                        lastBudget?.let { budget ->
+                            hw.put("rth_state", budget.state.name)
+                            putNum(hw, "rth_margin_seconds", budget.marginSec)
+                            putNum(hw, "rth_required_percent", budget.requiredPercent)
+                            hw.put("rth_burn_measured", budget.burnRateMeasured)
+                        }
                         
                         val healthInfos = dji.v5.manager.diagnostic.DeviceHealthManager.getInstance().currentDJIDeviceHealthInfos
                         val healthWarnings = org.json.JSONArray()
@@ -4134,11 +4202,19 @@ class MainActivity : AppCompatActivity() {
 
         val batteryKey = KeyTools.createKey(dji.sdk.keyvalue.key.BatteryKey.KeyChargeRemainingInPercent)
         KeyManager.getInstance().listen(batteryKey, this) { _, newValue: Int? ->
-            newValue?.let { 
+            newValue?.let {
                 droneBattery = it
+                // Feed the observed burn rate. Measuring beats assuming: the real rate depends on
+                // the payload, the wind and the age of the pack.
+                if (isFlying) {
+                    burnSamples.add(
+                        com.dji.recreate2.flight.ReturnHomeBudget.Sample(System.currentTimeMillis(), it)
+                    )
+                    while (burnSamples.size > BURN_SAMPLE_LIMIT) burnSamples.removeAt(0)
+                }
                 updateSituationLighting()
-                runOnUiThread { 
-                    tvBattery.text = String.format("%02d%%", it) 
+                runOnUiThread {
+                    tvBattery.text = String.format("%02d%%", it)
                     
                     if (it <= 30) {
                         tvBattery.setTextColor(android.graphics.Color.RED)
@@ -4202,7 +4278,16 @@ class MainActivity : AppCompatActivity() {
 
         val isFlyingKey = KeyTools.createKey(FlightControllerKey.KeyIsFlying)
         KeyManager.getInstance().listen(isFlyingKey, this) { _, newValue: Boolean? ->
-            newValue?.let { isFlying = it }
+            newValue?.let {
+                val wasFlying = isFlying
+                isFlying = it
+                // A burn rate measured on the last flight does not describe this one - different
+                // payload, different wind, and a battery swap in between.
+                if (it && !wasFlying) {
+                    burnSamples.clear()
+                    log("Return-home budget: burn-rate window reset at take-off.")
+                }
+            }
         }
 
         healthChangeListener = dji.v5.manager.diagnostic.DJIDeviceHealthInfoChangeListener { healthInfos ->
@@ -5173,6 +5258,80 @@ class MainActivity : AppCompatActivity() {
     /** A coordinate is usable when it is finite and not the null island. */
     private fun usableFix(lat: Double, lon: Double): Boolean =
         lat.isFinite() && lon.isFinite() && !(lat == 0.0 && lon == 0.0)
+
+    /**
+     * Works out whether the aircraft can still reach the home point, and keeps the result for the
+     * HUD and the telemetry payload.
+     *
+     * **This never commands the aircraft.** The link-loss failsafe already owns that authority;
+     * a second autonomous trigger would mean two things can fly the aircraft independently.
+     * CRITICAL is shown to the operator, who decides.
+     */
+    private fun updateReturnHomeBudget() {
+        val budget = if (!usableFix(homeLat, homeLon) || !usableFix(droneLat, droneLon)) {
+            null
+        } else {
+            val results = FloatArray(3)
+            android.location.Location.distanceBetween(droneLat, droneLon, homeLat, homeLon, results)
+            com.dji.recreate2.flight.ReturnHomeBudget.evaluate(
+                remainingPercent = droneBattery,
+                groundDistanceHomeM = results[0].toDouble(),
+                altitudeM = droneAlt,
+                rthAltitudeM = rthAltitude.toDouble(),
+                cruiseSpeedMps = cruiseSpeedMps,
+                safetyFactor = rthSafetyFactor,
+                fixedReserveSeconds = rthFixedReserveSec,
+                burnRate = com.dji.recreate2.flight.ReturnHomeBudget.burnRatePercentPerSec(burnSamples),
+                isFlying = isFlying
+            )
+        }
+        lastBudget = budget
+        if (budget == null) return
+
+        runOnUiThread {
+            if (!::tvBattery.isInitialized) return@runOnUiThread
+            // The battery colour already flags a low charge. This makes it mean "can you get
+            // home", which is the question a percentage cannot answer on its own.
+            when (budget.state) {
+                com.dji.recreate2.flight.ReturnHomeBudget.State.CRITICAL ->
+                    tvBattery.setTextColor(android.graphics.Color.RED)
+                com.dji.recreate2.flight.ReturnHomeBudget.State.COMMITTED ->
+                    tvBattery.setTextColor(android.graphics.Color.parseColor("#FFB300"))
+                else -> { /* leave the existing percentage colouring alone */ }
+            }
+        }
+
+        // Warn once per crossing rather than at 10 Hz.
+        if (budget.state != lastAnnouncedRthState) {
+            lastAnnouncedRthState = budget.state
+            when (budget.state) {
+                com.dji.recreate2.flight.ReturnHomeBudget.State.COMMITTED ->
+                    runOnUiThread { showToast("⚠️ Return margin ${com.dji.recreate2.flight.ReturnHomeBudget.describeMargin(budget)} - turn back to keep reserve") }
+                com.dji.recreate2.flight.ReturnHomeBudget.State.CRITICAL ->
+                    runOnUiThread { showToast("🔴 RETURN NOW - not enough charge for the trip home plus reserve") }
+                else -> {}
+            }
+            log("Return-home budget: ${budget.state}, ${com.dji.recreate2.flight.ReturnHomeBudget.describeMargin(budget)}, " +
+                    "needs ${"%.1f".format(budget.requiredPercent)}% of ${budget.remainingPercent.toInt()}%")
+        }
+    }
+
+    @Volatile private var lastAnnouncedRthState: com.dji.recreate2.flight.ReturnHomeBudget.State? = null
+
+    /**
+     * Shows whether touch designation is armed.
+     *
+     * Amber, not green - the same treatment as the landing auto-confirm toggle. Green reads as
+     * "healthy"; this is a state the operator should notice is on, because while it is armed a
+     * touch on the video reaches the aircraft and the C2 server.
+     */
+    private fun updateObjectTouchUi(button: TextView?) {
+        button ?: return
+        button.setTextColor(
+            if (touchDesignateEnabled) android.graphics.Color.parseColor("#FFB300")
+            else android.graphics.Color.parseColor("#AAAAAA")
+        )
+    }
 
     /**
      * Asks the aircraft to change lens and reports what it answered.
@@ -6692,6 +6851,32 @@ class MainActivity : AppCompatActivity() {
         val dLogText = dialog.findViewById<TextView>(R.id.logText)
         val dBtnClose = dialog.findViewById<TextView>(R.id.btnCloseSystem)
         
+        // Return-home margin settings.
+        val etCruiseSpeed = dialog.findViewById<android.widget.EditText?>(R.id.etCruiseSpeed)
+        val etRthSafetyFactor = dialog.findViewById<android.widget.EditText?>(R.id.etRthSafetyFactor)
+        val etRthReserve = dialog.findViewById<android.widget.EditText?>(R.id.etRthReserve)
+        etCruiseSpeed?.setText(String.format(java.util.Locale.US, "%.1f", cruiseSpeedMps))
+        etRthSafetyFactor?.setText(String.format(java.util.Locale.US, "%.2f", rthSafetyFactor))
+        etRthReserve?.setText(String.format(java.util.Locale.US, "%.0f", rthFixedReserveSec))
+
+        dialog.findViewById<android.widget.Button?>(R.id.btnSaveRthMargin)?.setOnClickListener {
+            etCruiseSpeed?.text?.toString()?.trim()?.toDoubleOrNull()
+                ?.takeIf { it.isFinite() }?.let { cruiseSpeedMps = it.coerceIn(1.0, 25.0) }
+            // A factor below 1.0 would reserve LESS than the trip home actually costs.
+            etRthSafetyFactor?.text?.toString()?.trim()?.toDoubleOrNull()
+                ?.takeIf { it.isFinite() }?.let { rthSafetyFactor = it.coerceIn(1.0, 3.0) }
+            etRthReserve?.text?.toString()?.trim()?.toDoubleOrNull()
+                ?.takeIf { it.isFinite() }?.let { rthFixedReserveSec = it.coerceIn(0.0, 600.0) }
+
+            etCruiseSpeed?.setText(String.format(java.util.Locale.US, "%.1f", cruiseSpeedMps))
+            etRthSafetyFactor?.setText(String.format(java.util.Locale.US, "%.2f", rthSafetyFactor))
+            etRthReserve?.setText(String.format(java.util.Locale.US, "%.0f", rthFixedReserveSec))
+            saveConfig()
+            showToast("Return-home margin: ${String.format(java.util.Locale.US, "%.1f", cruiseSpeedMps)}m/s, " +
+                    "x${String.format(java.util.Locale.US, "%.2f", rthSafetyFactor)}, " +
+                    "+${rthFixedReserveSec.toInt()}s")
+        }
+
         // Camera-only geolocation settings.
         val etTargetElevationOffset = dialog.findViewById<android.widget.EditText?>(R.id.etTargetElevationOffset)
         val etMinDepression = dialog.findViewById<android.widget.EditText?>(R.id.etMinDepression)

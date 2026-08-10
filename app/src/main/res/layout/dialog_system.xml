@@ -253,6 +253,83 @@
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
+                    android:text="RETURN-HOME MARGIN"
+                    android:textColor="#00E5FF"
+                    android:textSize="11sp"
+                    android:textStyle="bold"
+                    android:layout_marginTop="8dp"
+                    android:layout_marginBottom="4dp" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Warns when the charge left no longer covers the trip home plus reserve. The app never flies home on its own."
+                    android:textColor="#888888"
+                    android:textSize="10sp"
+                    android:layout_marginBottom="6dp" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:layout_marginBottom="8dp">
+
+                    <EditText
+                        android:id="@+id/etCruiseSpeed"
+                        android:layout_width="0dp"
+                        android:layout_weight="1"
+                        android:layout_height="40dp"
+                        android:hint="Cruise home (m/s)"
+                        android:inputType="numberDecimal"
+                        android:textColorHint="#666666"
+                        android:textColor="#FFFFFF"
+                        android:textSize="12sp"
+                        android:background="@drawable/bg_telemetry_capsule"
+                        android:paddingHorizontal="10dp"
+                        android:layout_marginEnd="4dp" />
+
+                    <EditText
+                        android:id="@+id/etRthSafetyFactor"
+                        android:layout_width="0dp"
+                        android:layout_weight="1"
+                        android:layout_height="40dp"
+                        android:hint="Safety factor"
+                        android:inputType="numberDecimal"
+                        android:textColorHint="#666666"
+                        android:textColor="#FFFFFF"
+                        android:textSize="12sp"
+                        android:background="@drawable/bg_telemetry_capsule"
+                        android:paddingHorizontal="10dp"
+                        android:layout_marginEnd="4dp" />
+
+                    <EditText
+                        android:id="@+id/etRthReserve"
+                        android:layout_width="0dp"
+                        android:layout_weight="1"
+                        android:layout_height="40dp"
+                        android:hint="Reserve (s)"
+                        android:inputType="numberDecimal"
+                        android:textColorHint="#666666"
+                        android:textColor="#FFFFFF"
+                        android:textSize="12sp"
+                        android:background="@drawable/bg_telemetry_capsule"
+                        android:paddingHorizontal="10dp" />
+
+                </LinearLayout>
+
+                <Button
+                    android:id="@+id/btnSaveRthMargin"
+                    android:layout_width="match_parent"
+                    android:layout_height="40dp"
+                    android:text="SAVE RETURN-HOME MARGIN"
+                    android:textColor="#00FF66"
+                    android:textSize="12sp"
+                    android:background="@drawable/bg_glass_btn"
+                    android:layout_marginBottom="8dp" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
                     android:text="CAMERA TARGET GEOLOCATION (NO LRF)"
                     android:textColor="#00E5FF"
                     android:textSize="11sp"
