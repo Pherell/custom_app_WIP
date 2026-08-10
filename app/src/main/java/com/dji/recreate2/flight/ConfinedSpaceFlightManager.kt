@@ -109,27 +109,30 @@ object ConfinedSpaceFlightManager {
         }
     }
 
-    @Volatile
-    var isFpvAcroModeEnabled: Boolean = false
-        private set
-
-    fun setFpvAcroMode(enabled: Boolean) {
-        isFpvAcroModeEnabled = enabled
-        Log.d(TAG, "FPV Acro Flight Mode updated: $enabled")
-    }
-
     /**
-     * Builds low-latency Virtual Stick parameters optimized for indoor/GPS-Denied, FPV Acro, or standard outdoor flight.
-     * Uses BODY coordinate frame for GPS-denied environments (Forward/Right relative to drone nose).
+     * Builds the Virtual Stick parameters for AUTONOMOUS flight - the mission engine and the
+     * targeting-pod yaw assist. Both write metres per second and degrees per second, so roll and
+     * pitch are always [RollPitchControlMode.VELOCITY].
+     *
+     * **WARNING: Do not add an [RollPitchControlMode.ANGLE] branch here.** An earlier "FPV Acro"
+     * setting did exactly that. ANGLE reads roll and pitch as an attitude in DEGREES, while every
+     * caller of this function writes a SPEED in metres per second into the same fields. A 12 m/s
+     * waypoint speed reached the aircraft as 12 degrees of tilt, and ANGLE mode holds that tilt
+     * with no speed regulation, so the aircraft accelerated until it passed the waypoint. The
+     * setting never reached the manual sticks, which use classic (non-advanced) mode, so its only
+     * effect was to break autonomous flight.
+     *
+     * GPS-denied flight selects the BODY frame, where pitch is the nose axis and roll is the right
+     * axis. `MainActivity.applyVelocitySetpoint` resolves a ground bearing into either frame.
      */
-    fun createVirtualStickParam(isGpsDenied: Boolean = isGpsDeniedModeEnabled, isFpvMode: Boolean = isFpvAcroModeEnabled): VirtualStickFlightControlParam {
+    fun createVirtualStickParam(isGpsDenied: Boolean = isGpsDeniedModeEnabled): VirtualStickFlightControlParam {
         return VirtualStickFlightControlParam().apply {
-            rollPitchCoordinateSystem = if (isGpsDenied || isFpvMode) {
+            rollPitchCoordinateSystem = if (isGpsDenied) {
                 FlightCoordinateSystem.BODY
             } else {
                 FlightCoordinateSystem.GROUND
             }
-            rollPitchControlMode = if (isFpvMode) RollPitchControlMode.ANGLE else RollPitchControlMode.VELOCITY
+            rollPitchControlMode = RollPitchControlMode.VELOCITY
             verticalControlMode = VerticalControlMode.VELOCITY
             yawControlMode = YawControlMode.ANGULAR_VELOCITY
         }

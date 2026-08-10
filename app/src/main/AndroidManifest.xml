@@ -77,6 +77,21 @@
             android:configChanges="orientation|screenSize|keyboardHidden"
             android:theme="@style/Theme.AppCompat.NoActionBar">
         </activity>
+        <!--
+          Shares a crash report without granting broad storage access. Scoped by res/xml/file_paths
+          to the crash and log directories only - a report carries the recent flight log, which
+          contains positions and target coordinates.
+        -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
     </application>
 
 </manifest>

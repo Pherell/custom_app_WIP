@@ -76,6 +76,13 @@ class MqttService(context: Context) {
                             } catch (e: Exception) {
                                 Log.e(tag, "Failed to subscribe", e)
                             }
+
+                            // Close the gap the outage left in the C2 track.
+                            try {
+                                replayBufferedTelemetry(currentDroneId)
+                            } catch (e: Exception) {
+                                Log.e(tag, "Failed to start telemetry replay", e)
+                            }
                         }
 
                         override fun connectionLost(cause: Throwable?) {
@@ -148,8 +155,27 @@ class MqttService(context: Context) {
         }
     }
 
+    /**
+     * Holds telemetry while the broker is unreachable, so a reconnect can backfill the track.
+     * Refer to [com.dji.recreate2.telemetry.TelemetryBuffer].
+     */
+    private val telemetryBuffer = com.dji.recreate2.telemetry.TelemetryBuffer()
+
+    /** Frames released per drain pass, so catching up does not starve live telemetry. */
+    private val REPLAY_BATCH = 50
+
+    /** Frames held while the link is down. */
+    val bufferedTelemetryCount: Int get() = telemetryBuffer.size
+
+    /** Frames lost to a full buffer. A gap the operator should know about. */
+    val droppedTelemetryCount: Long get() = telemetryBuffer.droppedCount
+
     fun publishTelemetry(clientId: String = currentDroneId, jsonPayload: String) {
-        if (!isConnected) return
+        // Previously this returned here and the frame was gone for good. Hold it instead.
+        if (!isConnected) {
+            telemetryBuffer.add(jsonPayload)
+            return
+        }
         executor.submit {
             synchronized(clientLock) {
                 if (mqttClient?.isConnected == true) {
@@ -160,8 +186,61 @@ class MqttService(context: Context) {
                         mqttClient?.publish(topic, message)
                     } catch (e: Exception) {
                         Log.e(tag, "Failed to publish telemetry", e)
+                        telemetryBuffer.add(jsonPayload)
+                    }
+                } else {
+                    telemetryBuffer.add(jsonPayload)
+                }
+            }
+        }
+    }
+
+    /**
+     * Sends held frames after a reconnect, oldest first.
+     *
+     * Replayed frames go at **QoS 1**: the whole point is to close a gap, so the catch-up must not
+     * be lossy the way live telemetry deliberately is. They keep their ORIGINAL timestamps, and
+     * the server stores `data.timestamp` rather than arrival time, so the track is drawn where the
+     * aircraft actually was.
+     *
+     * **A held frame must not carry a `type` field.** The server routes position frames on its
+     * absence; a frame with one would be treated as a target report and never stored.
+     */
+    private fun replayBufferedTelemetry(clientId: String) {
+        if (telemetryBuffer.isEmpty) return
+        val held = telemetryBuffer.size
+        val dropped = telemetryBuffer.droppedCount
+        Log.d(tag, "Replaying $held buffered telemetry frames (dropped $dropped while offline)")
+
+        executor.submit {
+            while (true) {
+                val batch = telemetryBuffer.drain(REPLAY_BATCH)
+                if (batch.isEmpty()) break
+
+                val failed = mutableListOf<com.dji.recreate2.telemetry.TelemetryBuffer.Frame>()
+                synchronized(clientLock) {
+                    if (mqttClient?.isConnected != true) {
+                        failed.addAll(batch)
+                    } else {
+                        val topic = "dji-sdk/fleet/$clientId/telemetry"
+                        for (frame in batch) {
+                            try {
+                                val message = MqttMessage(frame.payload.toByteArray())
+                                message.qos = 1
+                                mqttClient?.publish(topic, message)
+                            } catch (e: Exception) {
+                                Log.w(tag, "Replay failed, requeueing the rest", e)
+                                failed.add(frame)
+                            }
+                        }
                     }
                 }
+                if (failed.isNotEmpty()) {
+                    telemetryBuffer.requeueFront(failed)
+                    break
+                }
+                // Let live telemetry through between batches.
+                try { Thread.sleep(50) } catch (e: InterruptedException) { break }
             }
         }
     }

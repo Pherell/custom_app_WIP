@@ -74,7 +74,7 @@ def send_command_and_wait(broker_ip, broker_port, topic, payload, expected_event
         client.connect(broker_ip, int(broker_port), 5)
         if expected_events:
             client.on_message = on_message
-            client.subscribe("avarell/fleet/+/mission")
+            client.subscribe("dji-sdk/fleet/+/mission")
             client.loop_start()
             
         client.publish(topic, json.dumps(payload))
@@ -144,7 +144,7 @@ with col2:
                             client.username_pw_set(MQTT_USER, MQTT_PASS)
                         client.connect(broker_ip, int(broker_port), 60)
                         
-                        topic = "avarell/fleet/broadcast/command"
+                        topic = "dji-sdk/fleet/broadcast/command"
                     
                         payload = {
                             "command": "DOWNLOAD_KMZ",
@@ -163,7 +163,7 @@ with col2:
             if st.button("🛫 AUTO TAKE-OFF", use_container_width=True):
                 with st.spinner("Menunggu konfirmasi Take-Off dari Drone... (Max 6s)"):
                     payload = {"command": "TAKE_OFF"}
-                    topic = "avarell/fleet/broadcast/command"
+                    topic = "dji-sdk/fleet/broadcast/command"
                     
                     res = send_command_and_wait(broker_ip, broker_port, topic, payload, ["TAKEOFF_SUCCESS", "TAKEOFF_FAILED"], timeout=6.0)
                     
@@ -182,7 +182,7 @@ with col2:
                 else:
                     with st.spinner("Memulai Misi KMZ... (Max 16s)"):
                         payload = {"command": "START_KMZ"}
-                        topic = "avarell/fleet/broadcast/command"
+                        topic = "dji-sdk/fleet/broadcast/command"
                         
                         res = send_command_and_wait(broker_ip, broker_port, topic, payload, ["KMZ_STARTED", "KMZ_START_FAILED"], timeout=16.0)
                         

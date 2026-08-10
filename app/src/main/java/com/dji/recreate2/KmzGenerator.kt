@@ -1,6 +1,7 @@
 package com.dji.recreate2
 
 import android.content.Context
+import androidx.annotation.VisibleForTesting
 import org.osmdroid.util.GeoPoint
 import java.io.*
 import java.util.zip.ZipEntry
@@ -14,6 +15,12 @@ import android.util.Log
 object KmzGenerator {
 
     private const val TAG = "KmzGenerator"
+
+    // Gimbal pitch range written into a mission file. The mission runs on the aircraft, so the
+    // file cannot use the live GimbalLimits values. These are safe for every supported airframe.
+    // Refer to com.dji.recreate2.gimbal.GimbalLimits for the live limits the app applies.
+    private const val GIMBAL_PITCH_MIN_DEG = -85.0
+    private const val GIMBAL_PITCH_MAX_DEG = 25.0
 
     /**
      * @param actionType comma-separated waypoint actions, matching MainActivity.TacticalWaypoint:
@@ -86,7 +93,8 @@ object KmzGenerator {
         }
     }
 
-    private fun buildTemplateKml(globalAltitude: Double, speed: Double, signalLossAction: Int): String {
+    @VisibleForTesting
+    internal fun buildTemplateKml(globalAltitude: Double, speed: Double, signalLossAction: Int): String {
         val exitOnRCLost = "executeLostAction"
         val executeRCLostAction = when (signalLossAction) {
             0 -> "goBack"
@@ -122,6 +130,15 @@ object KmzGenerator {
         """.trimIndent()
     }
 
+    // Action group ids must be unique inside one wayline file - the aircraft keys actions by
+    // them. The previous scheme offset the camera groups by a flat 100 and gave the interval
+    // group 999, which collided as soon as a route reached 100 waypoints: camera group 0 and
+    // dwell group 100 were both id 100. A survey grid over a moderate area passes 100 points
+    // easily. Interleaving on the waypoint index instead cannot collide at any route length.
+    private fun cameraGroupId(index: Int): Int = index * 2
+    private fun dwellGroupId(index: Int): Int = index * 2 + 1
+    private fun intervalGroupId(waypointCount: Int): Int = waypointCount * 2
+
     /** Renders a single <wpml:action> block. */
     private fun buildAction(actionId: Int, actuatorFunc: String, paramXml: String): String {
         return """
@@ -146,7 +163,8 @@ ${paramXml.prependIndent("                        ")}
         return earthRadius * c
     }
 
-    private fun buildWaylinesWpml(
+    @VisibleForTesting
+    internal fun buildWaylinesWpml(
         waypoints: List<KmzWaypoint>,
         globalSpeed: Double,
         intervalPhoto: Boolean
@@ -193,7 +211,26 @@ ${paramXml.prependIndent("                        ")}
 
         // 1. Generate Placemarks
         waypoints.forEachIndexed { index, wp ->
-            val headingBlock = if (wp.heading != null) {
+            // A waypoint that locks onto a POI uses towardPOI heading. The aircraft then keeps
+            // its nose on the target for the whole leg, so the lock is continuous.
+            //
+            // The previous version emitted only a reachPoint gimbal action. That aimed the
+            // gimbal one time on arrival and never aimed it again, so the target moved out of
+            // the image as the aircraft continued. towardPOI also removes the need for gimbal
+            // yaw, which has a small mechanical range on most airframes.
+            val poiForHeading = wp.poiTarget?.takeIf {
+                val a = wp.actionType.uppercase()
+                a.contains("LOCK_POI") || a.contains("PHOTO") || a.contains("START_RECORD")
+            }
+
+            val headingBlock = if (poiForHeading != null) {
+                """
+                  <wpml:waypointHeadingParam>
+                    <wpml:waypointHeadingMode>towardPOI</wpml:waypointHeadingMode>
+                    <wpml:waypointPoiPoint>${poiForHeading.latitude},${poiForHeading.longitude},${poiForHeading.altitude}</wpml:waypointPoiPoint>
+                  </wpml:waypointHeadingParam>
+                """.trimIndent()
+            } else if (wp.heading != null) {
                 """
                   <wpml:waypointHeadingParam>
                     <wpml:waypointHeadingMode>smoothTransition</wpml:waypointHeadingMode>
@@ -272,60 +309,77 @@ ${turnBlock.prependIndent("                  ")}
             val actionXml = StringBuilder()
             var actionId = 0
 
-            for (action in actions) {
-                when (action) {
-                    "LOCK_POI", "PHOTO", "SET_GIMBAL" -> {
-                        // Aim the gimbal first: explicit pitch if given, else derive it from
-                        // the POI using the waypoint's own altitude as the height above target.
-                        val pitch = wp.gimbalPitch ?: wp.poiTarget?.let { poi ->
-                            val groundDist = calculateDistance(
-                                wp.geoPoint.latitude, wp.geoPoint.longitude,
-                                poi.latitude, poi.longitude
-                            )
-                            Math.toDegrees(Math.atan2(-wp.altitude, groundDist))
-                        }
-                        if (pitch != null) {
-                            actionXml.append(buildAction(actionId++, "gimbalRotate", """
-                                <wpml:gimbalRotateMode>absoluteAngle</wpml:gimbalRotateMode>
-                                <wpml:gimbalPitchRotateEnable>1</wpml:gimbalPitchRotateEnable>
-                                <wpml:gimbalPitchRotateAngle>${String.format(java.util.Locale.US, "%.1f", pitch.coerceIn(-90.0, 30.0))}</wpml:gimbalPitchRotateAngle>
-                                <wpml:gimbalRollRotateEnable>0</wpml:gimbalRollRotateEnable>
-                                <wpml:gimbalRollRotateAngle>0</wpml:gimbalRollRotateAngle>
-                                <wpml:gimbalYawRotateEnable>0</wpml:gimbalYawRotateEnable>
-                                <wpml:gimbalYawRotateAngle>0</wpml:gimbalYawRotateAngle>
-                                <wpml:payloadPositionIndex>0</wpml:payloadPositionIndex>
-                            """.trimIndent()))
-                        }
-                        if (action == "PHOTO") {
-                            actionXml.append(buildAction(actionId++, "takePhoto", """
-                                <wpml:payloadPositionIndex>0</wpml:payloadPositionIndex>
-                            """.trimIndent()))
-                        }
-                    }
-                    "START_RECORD" -> actionXml.append(buildAction(actionId++, "startRecord", """
-                        <wpml:payloadPositionIndex>0</wpml:payloadPositionIndex>
-                    """.trimIndent()))
-                    "STOP_RECORD" -> actionXml.append(buildAction(actionId++, "stopRecord", """
-                        <wpml:payloadPositionIndex>0</wpml:payloadPositionIndex>
-                    """.trimIndent()))
-                    "UNLOCK_POI" -> actionXml.append(buildAction(actionId++, "gimbalRotate", """
+            // Aim the gimbal ONCE, then act on it. A waypoint stamped "SET_GIMBAL,PHOTO" - which
+            // is what previewGridMission writes on every grid point - matched two branches of the
+            // earlier per-action loop and emitted the same gimbalRotate twice.
+            val wantsAim = actions.any { it == "LOCK_POI" || it == "PHOTO" || it == "SET_GIMBAL" }
+
+            if (wantsAim) {
+                // Explicit pitch if the waypoint carries one, else derive it from the POI using
+                // the waypoint's own height above the target.
+                val pitch = wp.gimbalPitch ?: wp.poiTarget?.let { poi ->
+                    val groundDist = calculateDistance(
+                        wp.geoPoint.latitude, wp.geoPoint.longitude,
+                        poi.latitude, poi.longitude
+                    )
+                    Math.toDegrees(Math.atan2(-wp.altitude, groundDist))
+                }
+                if (pitch != null) {
+                    // Yaw is enabled and commanded to 0. With towardPOI heading the nose already
+                    // points at the target, so zero is the correct trim. Setting it explicitly
+                    // also clears a yaw offset that an earlier action left behind.
+                    //
+                    // Pitch is limited to the range that every supported gimbal can reach. An
+                    // angle past the end stop makes the motors hold against the stop.
+                    actionXml.append(buildAction(actionId++, "gimbalRotate", """
                         <wpml:gimbalRotateMode>absoluteAngle</wpml:gimbalRotateMode>
                         <wpml:gimbalPitchRotateEnable>1</wpml:gimbalPitchRotateEnable>
-                        <wpml:gimbalPitchRotateAngle>0</wpml:gimbalPitchRotateAngle>
+                        <wpml:gimbalPitchRotateAngle>${String.format(java.util.Locale.US, "%.1f", pitch.coerceIn(GIMBAL_PITCH_MIN_DEG, GIMBAL_PITCH_MAX_DEG))}</wpml:gimbalPitchRotateAngle>
                         <wpml:gimbalRollRotateEnable>0</wpml:gimbalRollRotateEnable>
                         <wpml:gimbalRollRotateAngle>0</wpml:gimbalRollRotateAngle>
-                        <wpml:gimbalYawRotateEnable>0</wpml:gimbalYawRotateEnable>
+                        <wpml:gimbalYawRotateEnable>1</wpml:gimbalYawRotateEnable>
                         <wpml:gimbalYawRotateAngle>0</wpml:gimbalYawRotateAngle>
                         <wpml:payloadPositionIndex>0</wpml:payloadPositionIndex>
                     """.trimIndent()))
                 }
             }
 
+            if (actions.contains("PHOTO")) {
+                actionXml.append(buildAction(actionId++, "takePhoto", """
+                    <wpml:payloadPositionIndex>0</wpml:payloadPositionIndex>
+                """.trimIndent()))
+            }
+
+            if (actions.contains("START_RECORD")) {
+                actionXml.append(buildAction(actionId++, "startRecord", """
+                    <wpml:payloadPositionIndex>0</wpml:payloadPositionIndex>
+                """.trimIndent()))
+            }
+
+            if (actions.contains("STOP_RECORD")) {
+                actionXml.append(buildAction(actionId++, "stopRecord", """
+                    <wpml:payloadPositionIndex>0</wpml:payloadPositionIndex>
+                """.trimIndent()))
+            }
+
+            // Recentre only when this waypoint did not also aim at something.
+            if (actions.contains("UNLOCK_POI") && !wantsAim) {
+                actionXml.append(buildAction(actionId++, "gimbalRotate", """
+                    <wpml:gimbalRotateMode>absoluteAngle</wpml:gimbalRotateMode>
+                    <wpml:gimbalPitchRotateEnable>1</wpml:gimbalPitchRotateEnable>
+                    <wpml:gimbalPitchRotateAngle>0</wpml:gimbalPitchRotateAngle>
+                    <wpml:gimbalRollRotateEnable>0</wpml:gimbalRollRotateEnable>
+                    <wpml:gimbalRollRotateAngle>0</wpml:gimbalRollRotateAngle>
+                    <wpml:gimbalYawRotateEnable>1</wpml:gimbalYawRotateEnable>
+                    <wpml:gimbalYawRotateAngle>0</wpml:gimbalYawRotateAngle>
+                    <wpml:payloadPositionIndex>0</wpml:payloadPositionIndex>
+                """.trimIndent()))
+            }
+
             if (actionXml.isNotEmpty()) {
-                // Offset the group id so it cannot collide with the dwell groups below.
                 sb.append("""
                   <wpml:actionGroup>
-                    <wpml:actionGroupId>${100 + index}</wpml:actionGroupId>
+                    <wpml:actionGroupId>${cameraGroupId(index)}</wpml:actionGroupId>
                     <wpml:actionGroupStartIndex>$index</wpml:actionGroupStartIndex>
                     <wpml:actionGroupEndIndex>$index</wpml:actionGroupEndIndex>
                     <wpml:actionGroupMode>sequence</wpml:actionGroupMode>
@@ -343,7 +397,7 @@ ${turnBlock.prependIndent("                  ")}
             if (wp.dwellTime != null && wp.dwellTime > 0) {
                 sb.append("""
                   <wpml:actionGroup>
-                    <wpml:actionGroupId>$index</wpml:actionGroupId>
+                    <wpml:actionGroupId>${dwellGroupId(index)}</wpml:actionGroupId>
                     <wpml:actionGroupStartIndex>$index</wpml:actionGroupStartIndex>
                     <wpml:actionGroupEndIndex>$index</wpml:actionGroupEndIndex>
                     <wpml:actionGroupMode>sequence</wpml:actionGroupMode>
@@ -369,7 +423,7 @@ ${turnBlock.prependIndent("                  ")}
             sb.append("""
                   <!-- Camera Action: Interval 1 detik di seluruh rute -->
                   <wpml:actionGroup>
-                    <wpml:actionGroupId>999</wpml:actionGroupId>
+                    <wpml:actionGroupId>${intervalGroupId(waypoints.size)}</wpml:actionGroupId>
                     <wpml:actionGroupStartIndex>0</wpml:actionGroupStartIndex>
                     <wpml:actionGroupEndIndex>${waypoints.lastIndex}</wpml:actionGroupEndIndex>
                     <wpml:actionGroupMode>sequence</wpml:actionGroupMode>

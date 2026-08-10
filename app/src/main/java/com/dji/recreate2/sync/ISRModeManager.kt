@@ -94,177 +94,17 @@ object ISRModeManager {
         }
     }
 
-    /**
-     * Triggered manually or by a C2 mission event in Mode 1.
-     * Takes a built-in high-res photo, downloads original MediaFile from drone camera,
-     * and streams it to S3.
-     */
-    fun triggerMode1Capture(context: Context? = null) {
-        val ctx = context?.applicationContext ?: appContext ?: run {
-            Log.e(TAG, "Cannot trigger Mode 1 capture: App Context is null")
-            return
-        }
 
-        if (!isProcessingCapture.compareAndSet(false, true)) {
-            Log.w(TAG, "Mode 1 capture already in progress. Skipping.")
-            return
-        }
-
-        val captureStartTime = System.currentTimeMillis()
-        Log.d(TAG, "Mode 1 Triggered: Executing built-in photo capture at $captureStartTime...")
-        showToast(ctx, "ISR Target Capture Initiated...")
-
-        // Step 1: Trigger built-in camera photo shoot
-        val shootKey = KeyTools.createKey(
-            CameraKey.KeyStartShootPhoto,
-            ComponentIndexType.LEFT_OR_MAIN
-        )
-
-        KeyManager.getInstance().performAction(shootKey, object : CommonCallbacks.CompletionCallbackWithParam<EmptyMsg> {
-            override fun onSuccess(msg: EmptyMsg?) {
-                Log.d(TAG, "Built-in Photo Shoot Action Succeeded. Fetching media file...")
-                // Step 2: Download original MediaFile & Upload to S3 on background thread
-                isrExecutor.submit {
-                    downloadAndUploadLatestPhoto(ctx, captureStartTime)
-                }
-            }
-
-            override fun onFailure(error: IDJIError) {
-                Log.e(TAG, "Failed to shoot photo: ${error.description()} (Code: ${error.errorCode()})")
-                showToast(ctx, "ISR Capture Error: ${error.description()}")
-                isProcessingCapture.set(false)
-            }
-        })
-    }
-
-    /**
-     * Pulls the latest MediaFile from camera storage, downloads the full original JPEG,
-     * and uploads it to S3.
-     */
-    private fun downloadAndUploadLatestPhoto(context: Context, captureStartTime: Long = 0L) {
-        try {
-            val mediaManager = MediaDataCenter.getInstance().mediaManager
-            if (mediaManager == null) {
-                Log.e(TAG, "MediaManager is null. Cannot download photo.")
-                isProcessingCapture.set(false)
-                return
-            }
-
-            var latestFile: MediaFile? = null
-            var attempts = 0
-            val maxAttempts = 3
-
-            while (attempts < maxAttempts && latestFile == null) {
-                attempts++
-                Thread.sleep(if (attempts == 1) 1500L else 1000L) // Wait for media indexer
-
-                val pullLatch = CountDownLatch(1)
-                var pulledFiles: List<MediaFile> = emptyList()
-
-                val param = PullMediaFileListParam.Builder().build()
-                mediaManager.pullMediaFileListFromCamera(param, object : CommonCallbacks.CompletionCallback {
-                    override fun onSuccess() {
-                        pulledFiles = mediaManager.mediaFileListData.data ?: emptyList()
-                        pullLatch.countDown()
-                    }
-
-                    override fun onFailure(error: IDJIError) {
-                        Log.e(TAG, "Failed to pull media file list (Attempt $attempts): ${error.description()}")
-                        pullLatch.countDown()
-                    }
-                })
-
-                val listOk = pullLatch.await(10, TimeUnit.SECONDS)
-                if (listOk && pulledFiles.isNotEmpty()) {
-                    val candidatePhotos = pulledFiles.filter {
-                        it.fileName.endsWith(".jpg", ignoreCase = true) ||
-                        it.fileName.endsWith(".jpeg", ignoreCase = true) ||
-                        it.fileName.endsWith(".dng", ignoreCase = true)
-                    }
-                    if (candidatePhotos.isNotEmpty()) {
-                        // Select by highest fileIndex rather than trusting list order, which
-                        // the previous candidatePhotos.last() silently assumed.
-                        //
-                        // Deliberately NOT gated on MediaFile.date: that is a DateTime in the
-                        // camera's own wall clock (year/month/day/hour/min/sec), which cannot
-                        // be compared reliably against captureStartTime from the tablet clock
-                        // across timezone and drift. The retry loop above is what waits for
-                        // the indexer; captureStartTime is retained for diagnostics only.
-                        latestFile = candidatePhotos.maxByOrNull { it.fileIndex } ?: candidatePhotos.last()
-                        Log.d(TAG, "Selected ${latestFile?.fileName} (index ${latestFile?.fileIndex}) " +
-                                "on attempt $attempts, ${System.currentTimeMillis() - captureStartTime}ms after shutter.")
-                    }
-                }
-            }
-
-            if (latestFile == null) {
-                Log.e(TAG, "Media file list is empty or timed out after $maxAttempts attempts.")
-                isProcessingCapture.set(false)
-                return
-            }
-
-            Log.d(TAG, "Downloading latest high-res photo: ${latestFile.fileName} (${latestFile.fileSize} bytes)...")
-
-            // Download original file to local cache
-            val cacheDir = File(context.getExternalFilesDir(Environment.DIRECTORY_PICTURES), "ISR_Mode1_Cache")
-            if (!cacheDir.exists()) cacheDir.mkdirs()
-
-            val destFile = File(cacheDir, "isr_${System.currentTimeMillis()}_${latestFile.fileName}")
-            val fos = FileOutputStream(destFile)
-            val downloadLatch = CountDownLatch(1)
-            val isAborted = AtomicBoolean(false)
-
-            latestFile.pullOriginalMediaFileFromCamera(0L, object : MediaFileDownloadListener {
-                override fun onStart() {}
-                override fun onProgress(total: Long, current: Long) {}
-                override fun onRealtimeDataUpdate(data: ByteArray, position: Long) {
-                    if (isAborted.get()) return
-                    try { fos.write(data) } catch (e: Exception) {}
-                }
-                override fun onFinish() {
-                    if (isAborted.get()) return
-                    try { fos.close() } catch (e: Exception) {}
-                    Log.d(TAG, "Downloaded high-res file ${latestFile.fileName} successfully.")
-                    downloadLatch.countDown()
-                }
-                override fun onFailure(error: IDJIError) {
-                    if (isAborted.get()) return
-                    try { fos.close() } catch (e: Exception) {}
-                    Log.e(TAG, "Download failed for ${latestFile.fileName}: ${error.description()}")
-                    downloadLatch.countDown()
-                }
-            })
-
-            val downloadOk = downloadLatch.await(60, TimeUnit.SECONDS)
-            if (!downloadOk || !destFile.exists() || destFile.length() == 0L) {
-                isAborted.set(true)
-                Log.e(TAG, "Download timed out or produced an empty file.")
-                if (destFile.exists()) destFile.delete()
-                isProcessingCapture.set(false)
-                return
-            }
-
-            // Upload high-res photo file to S3
-            Log.d(TAG, "Uploading high-res photo ${destFile.name} (${destFile.length()} bytes) to S3...")
-            S3UploadManager.uploadFile(context, destFile,
-                onSuccess = {
-                    Log.d(TAG, "Mode 1 S3 High-Res Upload SUCCESS for ${destFile.name}!")
-                    showToast(context, "ISR Photo Uploaded to S3!")
-                    if (destFile.exists()) destFile.delete()
-                    isProcessingCapture.set(false)
-                },
-                onError = { err ->
-                    Log.e(TAG, "Mode 1 S3 High-Res Upload FAILED: $err")
-                    showToast(context, "ISR S3 Upload Failed: $err")
-                    isProcessingCapture.set(false)
-                }
-            )
-
-        } catch (e: Exception) {
-            Log.e(TAG, "Error in Mode 1 photo capture pipeline", e)
-            isProcessingCapture.set(false)
-        }
-    }
+    // NOTE: triggerMode1Capture() and downloadAndUploadLatestPhoto() were removed.
+    //
+    // They pulled the full-resolution original off the camera, which needs the media manager in
+    // download mode. That puts the camera into playback and removes the pilot's live video, so it
+    // must never run in flight. Nothing called them.
+    //
+    // Mode 1 photo capture is handled in MainActivity.capturePhoto(): it copies the FPV frame with
+    // PixelCopy, writes the telemetry EXIF and sends that to S3 for immediate intel, and separately
+    // triggers the aircraft shutter so the full-resolution original lands on the SD card. Mode 2
+    // collects those originals after landing. Neither step disturbs the video feed.
 
     /**
      * Triggered when recording stops in ISR Mode 1.
@@ -273,6 +113,15 @@ object ISRModeManager {
     fun triggerMode1VideoUpload(context: Context? = null) {
         val ctx = context?.applicationContext ?: appContext ?: run {
             Log.e(TAG, "Cannot trigger Mode 1 video upload: App Context is null")
+            return
+        }
+
+        // Pulling a file off the camera needs media-download mode, which puts the camera into
+        // playback and removes the pilot's live video. Never do that in flight - the recording
+        // stays on the SD card and Mode 2 collects it after landing.
+        if (areMotorsRunning()) {
+            Log.d(TAG, "Airborne: leaving the recording on the card for the post-flight sync.")
+            showToast(ctx, "ISR: video stays on the card. Mode 2 collects it after landing.")
             return
         }
 
@@ -290,6 +139,18 @@ object ISRModeManager {
     }
 
     private fun downloadAndUploadLatestVideo(context: Context) {
+        // Ensures the camera leaves playback on every exit path, so live video comes back.
+        var mediaEnabled = false
+        fun leaveDownloadMode() {
+            if (!mediaEnabled) return
+            mediaEnabled = false
+            try {
+                MediaDataCenter.getInstance().mediaManager?.disable(null)
+            } catch (e: Exception) {
+                Log.w(TAG, "Could not leave media download mode: ${e.message}")
+            }
+        }
+
         try {
             // Give camera storage 2.0s to finalize the MP4 file index
             Thread.sleep(2000)
@@ -297,8 +158,46 @@ object ISRModeManager {
             val mediaManager = MediaDataCenter.getInstance().mediaManager
             if (mediaManager == null) {
                 Log.e(TAG, "MediaManager is null. Cannot download video.")
+                leaveDownloadMode()
+
                 isProcessingCapture.set(false)
                 return
+            }
+
+            // Same lifecycle Mode 2 needs: the camera has to be in media-download mode and the
+            // read source has to be named, or the list comes back empty. Safe here because this
+            // path is now gated on the motors being off.
+            val enableLatch = CountDownLatch(1)
+            val enableOk = AtomicBoolean(false)
+            mediaManager.enable(object : CommonCallbacks.CompletionCallback {
+                override fun onSuccess() {
+                    enableOk.set(true)
+                    enableLatch.countDown()
+                }
+                override fun onFailure(error: IDJIError) {
+                    Log.e(TAG, "Could not enter media download mode: ${error.description()}")
+                    enableLatch.countDown()
+                }
+            })
+            val enableReturned = enableLatch.await(10, TimeUnit.SECONDS)
+            mediaEnabled = enableOk.get()
+            if (!enableReturned || !mediaEnabled) {
+                showToast(context, "ISR: camera refused media download mode.")
+                leaveDownloadMode()
+
+                isProcessingCapture.set(false)
+                return
+            }
+
+            try {
+                mediaManager.setMediaFileDataSource(
+                    dji.v5.manager.datacenter.media.MediaFileListDataSource.Builder()
+                        .setLocation(dji.sdk.keyvalue.value.camera.CameraStorageLocation.SDCARD)
+                        .setIndexType(ComponentIndexType.LEFT_OR_MAIN)
+                        .build()
+                )
+            } catch (e: Exception) {
+                Log.w(TAG, "Could not set the media data source: ${e.message}")
             }
 
             val pullLatch = CountDownLatch(1)
@@ -320,6 +219,8 @@ object ISRModeManager {
             val listOk = pullLatch.await(10, TimeUnit.SECONDS)
             if (!listOk || pulledFiles.isEmpty()) {
                 Log.e(TAG, "Media file list is empty or timed out.")
+                leaveDownloadMode()
+
                 isProcessingCapture.set(false)
                 return
             }
@@ -333,6 +234,8 @@ object ISRModeManager {
             if (latestVideo == null) {
                 Log.w(TAG, "No MP4 video file found in camera storage.")
                 showToast(context, "ISR: No video file found to upload.")
+                leaveDownloadMode()
+
                 isProcessingCapture.set(false)
                 return
             }
@@ -375,6 +278,8 @@ object ISRModeManager {
                 isAborted.set(true)
                 Log.e(TAG, "Video download timed out or produced an empty file.")
                 if (destFile.exists()) destFile.delete()
+                leaveDownloadMode()
+
                 isProcessingCapture.set(false)
                 return
             }
@@ -387,19 +292,33 @@ object ISRModeManager {
                     Log.d(TAG, "Mode 1 S3 Video Upload SUCCESS for ${destFile.name}!")
                     showToast(context, "ISR ✔ Video Uploaded to S3!")
                     if (destFile.exists()) destFile.delete()
+                    leaveDownloadMode()
+
                     isProcessingCapture.set(false)
                 },
                 onError = { err ->
                     Log.e(TAG, "Mode 1 S3 Video Upload FAILED: $err")
                     showToast(context, "ISR ✗ Video Upload Failed: $err")
+                    leaveDownloadMode()
+
                     isProcessingCapture.set(false)
                 }
             )
 
         } catch (e: Exception) {
             Log.e(TAG, "Error in Mode 1 video upload pipeline", e)
+            leaveDownloadMode()
+
             isProcessingCapture.set(false)
         }
+    }
+
+    private fun areMotorsRunning(): Boolean = try {
+        KeyManager.getInstance().getValue(
+            KeyTools.createKey(dji.sdk.keyvalue.key.FlightControllerKey.KeyAreMotorsOn)
+        ) ?: false
+    } catch (e: Exception) {
+        false
     }
 
     private fun showToast(context: Context, msg: String) {

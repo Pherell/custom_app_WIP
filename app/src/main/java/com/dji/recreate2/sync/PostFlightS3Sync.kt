@@ -102,6 +102,39 @@ object PostFlightS3Sync {
         KeyManager.getInstance().cancelListen(motorsOnKey, this)
     }
 
+    /** Media manager currently in download mode, so every exit path can put it back. */
+    @Volatile private var activeMediaManager: dji.v5.manager.interfaces.IMediaManager? = null
+
+    /**
+     * Ends a sync: takes the camera out of media-download mode and releases the lock.
+     *
+     * disable() MUST run on every exit path. While the media manager is enabled the camera is in
+     * playback and the live video feed is not available, so a missed disable() leaves the operator
+     * with a dead FPV view and no indication why.
+     */
+    private fun finishSync(context: Context, reason: String) {
+        val mm = activeMediaManager
+        activeMediaManager = null
+        if (mm != null) {
+            try {
+                mm.disable(object : CommonCallbacks.CompletionCallback {
+                    override fun onSuccess() {
+                        Log.d(TAG, "Media download mode off; live video restored. ($reason)")
+                    }
+                    override fun onFailure(error: IDJIError) {
+                        Log.e(TAG, "Could not leave media download mode: ${error.description()}")
+                        Handler(Looper.getMainLooper()).post {
+                            Toast.makeText(context, "⚠️ Camera still in playback. Restart the camera view.", Toast.LENGTH_LONG).show()
+                        }
+                    }
+                })
+            } catch (e: Exception) {
+                Log.e(TAG, "Exception leaving media download mode: ${e.message}")
+            }
+        }
+        syncing.set(false)
+    }
+
     fun startSync(context: Context) {
         if (!syncing.compareAndSet(false, true)) {
             Log.w(TAG, "Mode 2 sync already in progress.")
@@ -118,18 +151,73 @@ object PostFlightS3Sync {
             return
         }
 
-        // Watchdog: if neither pullMediaFileListFromCamera callback ever fires, the flag would
-        // stay true and sync would be dead for the rest of the process lifetime.
-        val watchdogFor = mediaManager
+        // Do not put the camera into playback while the aircraft is flying - that removes the
+        // pilot's video feed. Mode 2 is a post-flight function; its trigger is motors-off.
+        if (areMotorsRunning()) {
+            Log.w(TAG, "Refusing to sync while the motors are running.")
+            Handler(Looper.getMainLooper()).post {
+                Toast.makeText(context, "⚠️ Mode 2: land and stop the motors before a media sync.", Toast.LENGTH_LONG).show()
+            }
+            syncing.set(false)
+            return
+        }
+
+        // Watchdog: if an SDK callback never fires, the flag would stay true and sync would be
+        // dead for the rest of the process lifetime.
         Handler(Looper.getMainLooper()).postDelayed({
-            if (syncing.get() && watchdogFor === MediaDataCenter.getInstance().mediaManager) {
+            if (syncing.get()) {
                 Log.e(TAG, "Mode 2 media list pull timed out; releasing sync lock.")
                 Toast.makeText(context, "⚠️ Mode 2: Media list timed out.", Toast.LENGTH_LONG).show()
-                syncing.set(false)
+                finishSync(context, "watchdog timeout")
             }
         }, MEDIA_LIST_TIMEOUT_MS)
 
-        pullMediaListInternal(context, mediaManager)
+        // The media manager needs an explicit lifecycle. Without enable() the camera is never put
+        // into media-download mode and pullMediaFileListFromCamera does not return the card
+        // contents. Neither call was made before, which is why a sync reported an empty card.
+        Log.d(TAG, "Entering media download mode...")
+        try {
+            mediaManager.enable(object : CommonCallbacks.CompletionCallback {
+                override fun onSuccess() {
+                    activeMediaManager = mediaManager
+
+                    // Choose the storage to READ. PullMediaFileListParam carries no location, so
+                    // this is the only way to say "SD card". KeyCameraStorageLocation elsewhere in
+                    // the app sets where the camera WRITES, which is a different setting - on an
+                    // airframe with internal storage the read could otherwise land on the wrong one.
+                    try {
+                        mediaManager.setMediaFileDataSource(
+                            dji.v5.manager.datacenter.media.MediaFileListDataSource.Builder()
+                                .setLocation(dji.sdk.keyvalue.value.camera.CameraStorageLocation.SDCARD)
+                                .setIndexType(dji.sdk.keyvalue.value.common.ComponentIndexType.LEFT_OR_MAIN)
+                                .build()
+                        )
+                        Log.d(TAG, "Media source set to SD card, main camera.")
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Could not set the media data source: ${e.message}")
+                    }
+
+                    pullMediaListInternal(context, mediaManager)
+                }
+
+                override fun onFailure(error: IDJIError) {
+                    Log.e(TAG, "Could not enter media download mode: ${error.description()}")
+                    Handler(Looper.getMainLooper()).post {
+                        Toast.makeText(context, "⚠️ Mode 2: camera refused download mode: ${error.description()}", Toast.LENGTH_LONG).show()
+                    }
+                    finishSync(context, "enable failed")
+                }
+            })
+        } catch (e: Exception) {
+            Log.e(TAG, "Exception entering media download mode", e)
+            finishSync(context, "enable exception")
+        }
+    }
+
+    private fun areMotorsRunning(): Boolean = try {
+        KeyManager.getInstance().getValue(KeyTools.createKey(FlightControllerKey.KeyAreMotorsOn)) ?: false
+    } catch (e: Exception) {
+        false
     }
 
     private fun pullMediaListInternal(context: Context, mediaManager: dji.v5.manager.interfaces.IMediaManager) {
@@ -159,7 +247,7 @@ object PostFlightS3Sync {
                         Handler(Looper.getMainLooper()).post {
                             Toast.makeText(context, "⚠️ Mode 2: Media fetch failed: [${err2.errorCode()}] ${err2.description()}", Toast.LENGTH_LONG).show()
                         }
-                        syncing.set(false)
+                        finishSync(context, "media list failed")
                     }
                 })
             }
@@ -199,7 +287,7 @@ object PostFlightS3Sync {
             Handler(Looper.getMainLooper()).post {
                 Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
             }
-            syncing.set(false)
+            finishSync(context, "nothing new to sync")
             return
         }
 
@@ -240,6 +328,16 @@ object PostFlightS3Sync {
         Thread {
             try {
                 for ((index, mediaFile) in droneFiles.withIndex()) {
+                    // The operator can re-arm while a long sync runs. The camera must not be left
+                    // in playback for take-off, so stop and hand the rest to the next landing.
+                    if (areMotorsRunning()) {
+                        Log.w(TAG, "Motors restarted during sync; stopping after ${index} file(s).")
+                        Handler(Looper.getMainLooper()).post {
+                            Toast.makeText(context, "⚠️ Mode 2: sync stopped, motors restarted.", Toast.LENGTH_LONG).show()
+                        }
+                        break
+                    }
+
                     val itemIndex = index + 1
                     val destFile = File(storageDir, mediaFile.fileName)
                     val fos = java.io.FileOutputStream(destFile)
@@ -333,7 +431,9 @@ object PostFlightS3Sync {
                             // Only record it as synced once S3 has actually accepted it, so a
                             // failed upload is retried on the next run.
                             markFileSynced(context, sourceName)
-                            if (destFile.exists()) destFile.delete()
+                            // The file STAYS in the folder the operator chose. It used to be
+                            // deleted here while S3UploadManager mirrored a copy into a different
+                            // directory, so the configured folder always ended up empty.
                             pendingUploads.decrementAndGet()
                             uploadsDone.release()
                         },
@@ -341,7 +441,9 @@ object PostFlightS3Sync {
                             Log.e(TAG, "S3 Upload Failed for ${destFile.name}: $err")
                             pendingUploads.decrementAndGet()
                             uploadsDone.release()
-                        }
+                        },
+                        // Already downloaded into the operator's chosen folder; no second copy.
+                        mirrorLocally = false
                     )
                 }
 
@@ -363,7 +465,7 @@ object PostFlightS3Sync {
                     Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
                 }
             } finally {
-                syncing.set(false)
+                finishSync(context, "sync complete")
             }
         }.start()
     }
