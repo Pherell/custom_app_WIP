@@ -336,6 +336,37 @@ class MainActivity : AppCompatActivity() {
     // Dynamic Grid Preview
     private val previewWaypoints = java.util.concurrent.CopyOnWriteArrayList<TacticalWaypoint>()
     private var previewGridPolyline: org.osmdroid.views.overlay.Polyline? = null
+
+    // --- Sensor footprint ---------------------------------------------------------------------
+    /**
+     * The ground the camera covers now, drawn over the satellite imagery.
+     *
+     * ONE overlay instance whose points are replaced. Adding a fresh Polygon per tick is what
+     * leaked the no-fly-zone overlays, and at 10 Hz it would leak far faster.
+     */
+    private var footprintPolygon: org.osmdroid.views.overlay.Polygon? = null
+
+    /** Where the sensor has already looked. Bounded, oldest dropped. */
+    private val coverageTrail = mutableListOf<org.osmdroid.views.overlay.Polygon>()
+    private val COVERAGE_TRAIL_LIMIT = 60
+
+    private var footprintOverlayEnabled = true
+    private var coverageTrailEnabled = false
+
+    /**
+     * The footprint is computed on the 10 Hz telemetry tick, but redrawing the map ten times a
+     * second repaints the satellite tiles under it and costs frames on a modest phone. Redraw at
+     * most this often, and only when the shape actually moved.
+     */
+    private val FOOTPRINT_REDRAW_MIN_MS = 400L
+    private val FOOTPRINT_MOVE_EPSILON_M = 2.0
+    @Volatile private var lastFootprintDrawMs = 0L
+    @Volatile private var lastFootprintCentre: Pair<Double, Double>? = null
+    @Volatile private var lastFootprintTruncated: Boolean? = null
+
+    @Volatile private var lastTrailFootprintMs = 0L
+    /** One trail print every few seconds; at 10 Hz the map would be unreadable. */
+    private val COVERAGE_TRAIL_INTERVAL_MS = 3000L
     
     private var isSimulatorActive = false
 
@@ -3616,6 +3647,8 @@ class MainActivity : AppCompatActivity() {
         mapTileTemplate = sharedPrefs.getString("mapTileTemplate", null)
             ?.takeIf { com.dji.recreate2.map.TileTemplate.isValid(it) }
             ?: com.dji.recreate2.map.TileTemplate.ARCGIS_SATELLITE
+        footprintOverlayEnabled = sharedPrefs.getBoolean("footprintOverlayEnabled", true)
+        coverageTrailEnabled = sharedPrefs.getBoolean("coverageTrailEnabled", false)
         cruiseSpeedMps = sharedPrefs.getFloat("cruiseSpeedMps", 8.0f).toDouble()
         rthSafetyFactor = sharedPrefs.getFloat("rthSafetyFactor", 1.3f).toDouble()
         rthFixedReserveSec = sharedPrefs.getFloat("rthFixedReserveSec", 60.0f).toDouble()
@@ -3639,6 +3672,8 @@ class MainActivity : AppCompatActivity() {
             putFloat("minDepressionDeg", minDepressionDeg.toFloat())
             putBoolean("touchDesignateEnabled", touchDesignateEnabled)
             putString("mapTileTemplate", mapTileTemplate)
+            putBoolean("footprintOverlayEnabled", footprintOverlayEnabled)
+            putBoolean("coverageTrailEnabled", coverageTrailEnabled)
             putFloat("cruiseSpeedMps", cruiseSpeedMps.toFloat())
             putFloat("rthSafetyFactor", rthSafetyFactor.toFloat())
             putFloat("rthFixedReserveSec", rthFixedReserveSec.toFloat())
@@ -4003,6 +4038,14 @@ class MainActivity : AppCompatActivity() {
                     updateReturnHomeBudget()
                 } catch (e: Exception) {
                     android.util.Log.e("Telemetry", "Return-home budget tick failed", e)
+                }
+
+                // Also before the C2 gate: the coverage picture is for the operator and matters
+                // whether or not a server is listening.
+                try {
+                    updateSensorFootprint()
+                } catch (e: Exception) {
+                    android.util.Log.e("Telemetry", "Sensor footprint tick failed", e)
                 }
 
                 if (!::mqttService.isInitialized || !mqttService.isConnected) return
@@ -5308,6 +5351,149 @@ class MainActivity : AppCompatActivity() {
         lat.isFinite() && lon.isFinite() && !(lat == 0.0 && lon == 0.0)
 
     /**
+     * Draws the ground the camera currently covers over the satellite imagery.
+     *
+     * The map showed where the aircraft was and nothing about what the sensor had looked at. This
+     * answers "have I actually covered that ground", which is the ISR question the position alone
+     * cannot.
+     */
+    private fun updateSensorFootprint() {
+        if (!footprintOverlayEnabled || !::mapView.isInitialized) {
+            if (footprintPolygon != null) {
+                runOnUiThread { clearFootprintOverlay() }
+            }
+            return
+        }
+
+        val surfaceW = if (::fpvSurface.isInitialized) fpvSurface.width else 0
+        val surfaceH = if (::fpvSurface.isInitialized) fpvSurface.height else 0
+        val (halfH, halfV) = com.dji.recreate2.gimbal.CameraProjection
+            .effectiveHalfFovDeg(cameraFov, surfaceW, surfaceH)
+
+        val fp = com.dji.recreate2.geo.CameraGeolocator.footprint(
+            droneLat = droneLat,
+            droneLon = droneLon,
+            droneAltM = droneAlt,
+            droneYawDeg = droneYaw,
+            gimbalPitchDeg = gimbalPitch,
+            gimbalYawDeg = gimbalYaw,
+            halfFovHDeg = halfH,
+            halfFovVDeg = halfV,
+            targetElevationOffsetM = targetElevationOffset,
+            minDepressionDeg = minDepressionDeg
+        )
+
+        if (fp != null && !shouldRedrawFootprint(fp)) return
+
+        runOnUiThread {
+            if (fp == null) {
+                // The camera is at or above the horizon. Draw nothing rather than leave a stale
+                // polygon claiming coverage the camera no longer has.
+                lastFootprintCentre = null
+                lastFootprintTruncated = null
+                clearFootprintOverlay()
+                return@runOnUiThread
+            }
+
+            val points = fp.corners.map { GeoPoint(it.first, it.second) }
+
+            val poly = footprintPolygon ?: org.osmdroid.views.overlay.Polygon(mapView).also {
+                it.isEnabled = true
+                footprintPolygon = it
+                mapView.overlays.add(it)
+            }
+
+            // Amber and open when the far edge ran past the usable angle, so a bounded-by-horizon
+            // footprint never reads as confirmed coverage.
+            if (fp.truncated) {
+                poly.fillPaint.color = android.graphics.Color.argb(40, 255, 179, 0)
+                poly.outlinePaint.color = android.graphics.Color.parseColor("#FFB300")
+                poly.outlinePaint.pathEffect = android.graphics.DashPathEffect(floatArrayOf(12f, 8f), 0f)
+            } else {
+                poly.fillPaint.color = android.graphics.Color.argb(50, 0, 229, 255)
+                poly.outlinePaint.color = android.graphics.Color.parseColor("#00E5FF")
+                poly.outlinePaint.pathEffect = null
+            }
+            poly.outlinePaint.strokeWidth = 3f
+            poly.points = points
+
+            if (coverageTrailEnabled) addCoverageTrailPrint(points)
+
+            mapView.invalidate()
+        }
+    }
+
+    /**
+     * True when the footprint has moved or changed state enough to be worth repainting.
+     *
+     * A gimbal held still produces the same polygon every tick; redrawing it repaints the
+     * satellite tiles underneath for no gain.
+     */
+    private fun shouldRedrawFootprint(fp: com.dji.recreate2.geo.CameraGeolocator.Footprint): Boolean {
+        val now = System.currentTimeMillis()
+        if (now - lastFootprintDrawMs < FOOTPRINT_REDRAW_MIN_MS) return false
+
+        // A change between confirmed and horizon-bounded must always show, however small the move.
+        val truncationChanged = lastFootprintTruncated != fp.truncated
+
+        val previous = lastFootprintCentre
+        val moved = if (previous == null) true else {
+            val (north, east) = com.dji.recreate2.geo.GeoMath.toNorthEast(
+                previous.first, previous.second, fp.centre.first, fp.centre.second
+            )
+            Math.hypot(north, east) >= FOOTPRINT_MOVE_EPSILON_M
+        }
+
+        if (!moved && !truncationChanged) return false
+
+        lastFootprintDrawMs = now
+        lastFootprintCentre = fp.centre
+        lastFootprintTruncated = fp.truncated
+        return true
+    }
+
+    /** Removes the live footprint. Safe to call when there is none. */
+    private fun clearFootprintOverlay() {
+        footprintPolygon?.let { mapView.overlays.remove(it) }
+        footprintPolygon = null
+        mapView.invalidate()
+    }
+
+    /**
+     * Leaves a faint print of where the sensor has been.
+     *
+     * Bounded by count and oldest-dropped, the same rule as the telemetry buffer: a long sortie
+     * would otherwise accumulate overlays until the map stops drawing.
+     */
+    private fun addCoverageTrailPrint(points: List<GeoPoint>) {
+        val now = System.currentTimeMillis()
+        if (now - lastTrailFootprintMs < COVERAGE_TRAIL_INTERVAL_MS) return
+        lastTrailFootprintMs = now
+
+        val print = org.osmdroid.views.overlay.Polygon(mapView).apply {
+            fillPaint.color = android.graphics.Color.argb(28, 0, 255, 102)
+            outlinePaint.color = android.graphics.Color.argb(60, 0, 255, 102)
+            outlinePaint.strokeWidth = 1f
+            this.points = points
+        }
+        // Below the live footprint and the markers.
+        mapView.overlays.add(0, print)
+        coverageTrail.add(print)
+
+        while (coverageTrail.size > COVERAGE_TRAIL_LIMIT) {
+            val oldest = coverageTrail.removeAt(0)
+            mapView.overlays.remove(oldest)
+        }
+    }
+
+    /** Drops every coverage print. */
+    private fun clearCoverageTrail() {
+        for (p in coverageTrail) mapView.overlays.remove(p)
+        coverageTrail.clear()
+        mapView.invalidate()
+    }
+
+    /**
      * Tells the operator a crash report is waiting and offers to share it.
      *
      * **Nothing is transmitted without an answer.** A report carries the recent flight log, which
@@ -6512,6 +6698,43 @@ class MainActivity : AppCompatActivity() {
             objectTrackingOverlay?.isAiDetectionBoxesVisible = newState
             refreshAiBoxButtonUI()
             showToast(if (newState) "🤖 AI Object Detection Boxes: VISIBLE" else "🤖 AI Object Detection Boxes: HIDDEN")
+        }
+
+        // Sensor coverage on the satellite map.
+        val btnToggleFootprint = dialog.findViewById<android.widget.Button?>(R.id.btnToggleFootprint)
+        val btnToggleCoverageTrail = dialog.findViewById<android.widget.Button?>(R.id.btnToggleCoverageTrail)
+        fun refreshFootprintButtons() {
+            btnToggleFootprint?.text =
+                if (footprintOverlayEnabled) "📐 SENSOR FOOTPRINT: ON ✓" else "📐 SENSOR FOOTPRINT: OFF"
+            btnToggleFootprint?.setTextColor(
+                if (footprintOverlayEnabled) android.graphics.Color.parseColor("#00E5FF")
+                else android.graphics.Color.parseColor("#888888")
+            )
+            btnToggleCoverageTrail?.text =
+                if (coverageTrailEnabled) "🗺 COVERAGE TRAIL: ON ✓" else "🗺 COVERAGE TRAIL: OFF"
+            btnToggleCoverageTrail?.setTextColor(
+                if (coverageTrailEnabled) android.graphics.Color.parseColor("#00FF66")
+                else android.graphics.Color.parseColor("#888888")
+            )
+        }
+        refreshFootprintButtons()
+
+        btnToggleFootprint?.setOnClickListener {
+            footprintOverlayEnabled = !footprintOverlayEnabled
+            if (!footprintOverlayEnabled) runOnUiThread { clearFootprintOverlay() }
+            refreshFootprintButtons()
+            saveConfig()
+            showToast(if (footprintOverlayEnabled) "Sensor footprint shown on the map" else "Sensor footprint hidden")
+        }
+
+        btnToggleCoverageTrail?.setOnClickListener {
+            coverageTrailEnabled = !coverageTrailEnabled
+            // Turning it off drops what is already drawn - a stale trail would read as coverage
+            // from this sortie when it is not.
+            if (!coverageTrailEnabled) runOnUiThread { clearCoverageTrail() }
+            refreshFootprintButtons()
+            saveConfig()
+            showToast(if (coverageTrailEnabled) "Coverage trail recording" else "Coverage trail cleared")
         }
 
         // Mode 1: Capture drone camera feed only (no HUD) and upload to S3
