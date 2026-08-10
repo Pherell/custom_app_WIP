@@ -236,6 +236,14 @@ class MainActivity : AppCompatActivity() {
      */
     private var touchDesignateEnabled = false
 
+    /**
+     * Tile address template with `{z}`, `{x}` and `{y}` placeholders.
+     *
+     * A template rather than a host, because the axis order differs between servers. Refer to
+     * [com.dji.recreate2.map.TileTemplate].
+     */
+    private var mapTileTemplate = com.dji.recreate2.map.TileTemplate.ARCGIS_SATELLITE
+
     // --- Return-home budget ------------------------------------------------------------------
     /** Cruise speed assumed for the trip home, m/s. */
     private var cruiseSpeedMps = 8.0
@@ -374,10 +382,19 @@ class MainActivity : AppCompatActivity() {
         // Initialize Map
         org.osmdroid.config.Configuration.getInstance().userAgentValue = applicationContext.packageName
         org.osmdroid.config.Configuration.getInstance().load(
-            applicationContext, 
+            applicationContext,
             getSharedPreferences("osmdroid", Context.MODE_PRIVATE)
         )
-        
+        // Tiles fetched while connected are what the operator has in the field. The osmdroid
+        // default cache is small enough that a mission area gets evicted before it is flown, so
+        // set the limits explicitly. 600 MB with a 500 MB trim point.
+        try {
+            org.osmdroid.config.Configuration.getInstance().tileFileSystemCacheMaxBytes = 600L * 1024 * 1024
+            org.osmdroid.config.Configuration.getInstance().tileFileSystemCacheTrimBytes = 500L * 1024 * 1024
+        } catch (e: Exception) {
+            android.util.Log.w("MapCache", "Could not size the tile cache: ${e.message}")
+        }
+
         setContentView(R.layout.activity_main)
         
         // Init MQTT Service
@@ -527,14 +544,31 @@ class MainActivity : AppCompatActivity() {
 
         // Setup Strategy Map
         mapView = findViewById(R.id.mapView)
+        // The tile address is a TEMPLATE, not just a host, because the axis order differs between
+        // servers: ArcGIS serves {z}/{y}/{x} while tileserver-gl and OSM serve {z}/{x}/{y}.
+        // Swapping only the host would draw correct tiles in the wrong places - a map that still
+        // looks like a map, which the operator would trust. Refer to map/TileTemplate.
+        //
+        // The tile cache name is derived from the template so a change of server does not read
+        // the previous server's tiles out of the cache.
+        val activeTemplate = mapTileTemplate
+        val sourceName = "tiles-" + Math.abs(activeTemplate.hashCode())
         val satelliteSource = object : org.osmdroid.tileprovider.tilesource.OnlineTileSourceBase(
-            "ArcGIS", 0, 20, 256, ".jpg",
-            arrayOf("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/")
+            sourceName, 0, 20, 256, ".jpg",
+            arrayOf(activeTemplate)
         ) {
             override fun getTileURLString(pMapTileIndex: Long): String {
-                return baseUrl + org.osmdroid.util.MapTileIndex.getZoom(pMapTileIndex) + "/" +
-                        org.osmdroid.util.MapTileIndex.getY(pMapTileIndex) + "/" +
-                        org.osmdroid.util.MapTileIndex.getX(pMapTileIndex)
+                return com.dji.recreate2.map.TileTemplate.build(
+                    activeTemplate,
+                    org.osmdroid.util.MapTileIndex.getZoom(pMapTileIndex),
+                    org.osmdroid.util.MapTileIndex.getX(pMapTileIndex),
+                    org.osmdroid.util.MapTileIndex.getY(pMapTileIndex)
+                ) ?: com.dji.recreate2.map.TileTemplate.build(
+                    com.dji.recreate2.map.TileTemplate.ARCGIS_SATELLITE,
+                    org.osmdroid.util.MapTileIndex.getZoom(pMapTileIndex),
+                    org.osmdroid.util.MapTileIndex.getX(pMapTileIndex),
+                    org.osmdroid.util.MapTileIndex.getY(pMapTileIndex)
+                )!!
             }
         }
         mapView.setTileSource(satelliteSource)
@@ -3575,6 +3609,11 @@ class MainActivity : AppCompatActivity() {
         ).toDouble()
         // Off unless the operator armed it and the app remembered.
         touchDesignateEnabled = sharedPrefs.getBoolean("touchDesignateEnabled", false)
+        // Read before mapView is built at onCreate - the tile source captures this value when it
+        // is constructed, so a later load would not take effect until the next start.
+        mapTileTemplate = sharedPrefs.getString("mapTileTemplate", null)
+            ?.takeIf { com.dji.recreate2.map.TileTemplate.isValid(it) }
+            ?: com.dji.recreate2.map.TileTemplate.ARCGIS_SATELLITE
         cruiseSpeedMps = sharedPrefs.getFloat("cruiseSpeedMps", 8.0f).toDouble()
         rthSafetyFactor = sharedPrefs.getFloat("rthSafetyFactor", 1.3f).toDouble()
         rthFixedReserveSec = sharedPrefs.getFloat("rthFixedReserveSec", 60.0f).toDouble()
@@ -3597,6 +3636,7 @@ class MainActivity : AppCompatActivity() {
             putFloat("targetElevationOffsetM", targetElevationOffset.toFloat())
             putFloat("minDepressionDeg", minDepressionDeg.toFloat())
             putBoolean("touchDesignateEnabled", touchDesignateEnabled)
+            putString("mapTileTemplate", mapTileTemplate)
             putFloat("cruiseSpeedMps", cruiseSpeedMps.toFloat())
             putFloat("rthSafetyFactor", rthSafetyFactor.toFloat())
             putFloat("rthFixedReserveSec", rthFixedReserveSec.toFloat())
@@ -5260,6 +5300,37 @@ class MainActivity : AppCompatActivity() {
         lat.isFinite() && lon.isFinite() && !(lat == 0.0 && lon == 0.0)
 
     /**
+     * Downloads the tiles for the area on screen so the map still works with no network.
+     *
+     * The operator prepares while connected; the mission is flown where there is no connection.
+     * Without this the cache only holds what happened to be panned over.
+     */
+    private fun cacheVisibleMapArea() {
+        if (!::mapView.isInitialized) return
+        val box = mapView.boundingBox
+        val fromZoom = mapView.zoomLevelDouble.toInt().coerceIn(1, 18)
+        val toZoom = (fromZoom + 3).coerceAtMost(19)
+
+        showToast("Caching zoom $fromZoom-$toZoom for the visible area...")
+        log("Tile cache sweep: zoom $fromZoom..$toZoom over $box")
+
+        Thread({
+            try {
+                val provider = org.osmdroid.tileprovider.cachemanager.CacheManager(mapView)
+                val count = provider.possibleTilesInArea(box, fromZoom, toZoom)
+                runOnUiThread { log("Tile cache sweep: $count tiles queued") }
+                provider.downloadAreaAsync(this, box, fromZoom, toZoom)
+            } catch (e: Exception) {
+                // Not fatal - the map still works online. Say so rather than failing silently.
+                runOnUiThread {
+                    showToast("Tile cache failed: ${e.message}")
+                    log("Tile cache sweep failed: ${e.message}")
+                }
+            }
+        }, "TileCacheSweep").start()
+    }
+
+    /**
      * Works out whether the aircraft can still reach the home point, and keeps the result for the
      * HUD and the telemetry payload.
      *
@@ -6851,6 +6922,36 @@ class MainActivity : AppCompatActivity() {
         val dLogText = dialog.findViewById<TextView>(R.id.logText)
         val dBtnClose = dialog.findViewById<TextView>(R.id.btnCloseSystem)
         
+        // Map tile source.
+        val etMapTileTemplate = dialog.findViewById<android.widget.EditText?>(R.id.etMapTileTemplate)
+        etMapTileTemplate?.setText(mapTileTemplate)
+
+        dialog.findViewById<android.widget.Button?>(R.id.btnTilePresetOnline)?.setOnClickListener {
+            etMapTileTemplate?.setText(com.dji.recreate2.map.TileTemplate.ARCGIS_SATELLITE)
+        }
+        dialog.findViewById<android.widget.Button?>(R.id.btnTilePresetLocal)?.setOnClickListener {
+            etMapTileTemplate?.setText(com.dji.recreate2.map.TileTemplate.LOCAL_TILESERVER)
+        }
+        dialog.findViewById<android.widget.Button?>(R.id.btnSaveTileSource)?.setOnClickListener {
+            val entered = etMapTileTemplate?.text?.toString()?.trim().orEmpty()
+            if (!com.dji.recreate2.map.TileTemplate.isValid(entered)) {
+                // Refuse rather than store something that makes every tile request malformed.
+                showToast("⚠️ Template needs {z}, {x} and {y}")
+                return@setOnClickListener
+            }
+            val changed = entered != mapTileTemplate
+            mapTileTemplate = entered
+            saveConfig()
+            // The tile source captures the template when it is built, so this is honest about
+            // needing a restart rather than pretending the change is live.
+            showToast(if (changed) "Tile source saved - RESTART the app to use it" else "Tile source unchanged")
+            log("Map tile template set to $entered")
+        }
+
+        dialog.findViewById<android.widget.Button?>(R.id.btnCacheMapArea)?.setOnClickListener {
+            cacheVisibleMapArea()
+        }
+
         // Return-home margin settings.
         val etCruiseSpeed = dialog.findViewById<android.widget.EditText?>(R.id.etCruiseSpeed)
         val etRthSafetyFactor = dialog.findViewById<android.widget.EditText?>(R.id.etRthSafetyFactor)
