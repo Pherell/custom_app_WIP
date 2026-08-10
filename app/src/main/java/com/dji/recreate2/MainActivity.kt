@@ -755,6 +755,8 @@ class MainActivity : AppCompatActivity() {
         // Saved tags belong on the map from the start. This used to run only after the HUD TAG
         // button or when the tag window opened, so a restart left every saved target invisible.
         updateGpsTagsOnMap()
+
+        offerCrashReportIfPresent()
         
         PayloadDetectionManager.onLrfDataUpdated = { distance, lat, lon, alt ->
             // Record the measurement before anything else. This is the only value in the app that
@@ -4279,6 +4281,12 @@ class MainActivity : AppCompatActivity() {
         KeyManager.getInstance().listen(productTypeKey, this) { _, newValue ->
             newValue?.let { productType ->
                 PayloadDetectionManager.detectCapabilities()
+                // So a crash report says which airframe produced it. Half the SDK behaviour
+                // differs between an M30 and a Mavic 3E, and a report without the model cannot
+                // be read.
+                com.dji.recreate2.diag.CrashReporter.aircraftDescription =
+                    "${productType.name} lrf=${PayloadDetectionManager.currentState.isLrfSupported} " +
+                            "lenses=${PayloadDetectionManager.currentState.availableLenses}"
                 val name = productType.name.replace("_", " ").replace("DJI", "").trim()
                 runOnUiThread {
                     val tvDroneModel = findViewById<TextView?>(R.id.tvDroneModel)
@@ -5298,6 +5306,57 @@ class MainActivity : AppCompatActivity() {
     /** A coordinate is usable when it is finite and not the null island. */
     private fun usableFix(lat: Double, lon: Double): Boolean =
         lat.isFinite() && lon.isFinite() && !(lat == 0.0 && lon == 0.0)
+
+    /**
+     * Tells the operator a crash report is waiting and offers to share it.
+     *
+     * **Nothing is transmitted without an answer.** A report carries the recent flight log, which
+     * contains positions and target coordinates - that is operational data, not just a stack
+     * trace, so it does not leave the tablet on its own.
+     */
+    private fun offerCrashReportIfPresent() {
+        val reports = com.dji.recreate2.diag.CrashReporter.reports()
+        if (reports.isEmpty()) return
+
+        val newest = reports.first()
+        log("Crash report from the previous run: ${newest.name}")
+
+        android.app.AlertDialog.Builder(this)
+            .setTitle("Previous run ended in a crash")
+            .setMessage(
+                "A report was saved: ${newest.name}\n\n" +
+                        "It contains the recent flight log, including positions and target " +
+                        "coordinates. Share it only where that is acceptable."
+            )
+            .setPositiveButton("SHARE") { d, _ ->
+                d.dismiss()
+                try {
+                    val uri = androidx.core.content.FileProvider.getUriForFile(
+                        this, "$packageName.fileprovider", newest
+                    )
+                    startActivity(
+                        android.content.Intent.createChooser(
+                            android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                                type = "text/plain"
+                                putExtra(android.content.Intent.EXTRA_STREAM, uri)
+                                addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            },
+                            "Share crash report"
+                        )
+                    )
+                } catch (e: Exception) {
+                    showToast("Could not share: ${e.message}")
+                    log("Crash report share failed: ${e.message}")
+                }
+            }
+            .setNeutralButton("KEEP") { d, _ -> d.dismiss() }
+            .setNegativeButton("DELETE") { d, _ ->
+                com.dji.recreate2.diag.CrashReporter.clearReports()
+                d.dismiss()
+                showToast("Crash reports deleted")
+            }
+            .show()
+    }
 
     /**
      * Downloads the tiles for the area on screen so the map still works with no network.
@@ -7217,12 +7276,21 @@ class MainActivity : AppCompatActivity() {
     private fun log(message: String) {
         val timestamp = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())
         val logEntry = "[$timestamp] $message\n"
+
+        // To disk FIRST. The in-memory buffer below still truncates and still dies with the
+        // process - it is the LOG tab's scrollback, not the record. Two crashes during the
+        // 2026-08-09 audit left nothing behind because this line did not exist.
+        com.dji.recreate2.diag.FlightLog.append(
+            java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.US)
+                .format(java.util.Date()) + " " + message
+        )
+
         logHistory.append(logEntry)
-        
+
         if (logHistory.length > 5000) {
             logHistory.delete(0, logHistory.length - 5000)
         }
-        
+
         runOnUiThread {
             logText?.append(logEntry)
             if (logText != null) {

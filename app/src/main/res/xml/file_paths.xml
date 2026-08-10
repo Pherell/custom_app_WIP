@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Paths the FileProvider may share.
+
+  Only the crash and log directories inside filesDir. Nothing else is exposed: a crash report
+  carries the recent flight log, which contains positions and target coordinates, so the share
+  surface is kept as small as it can be.
+-->
+<paths>
+    <files-path name="crash" path="crash/" />
+    <files-path name="logs" path="logs/" />
+</paths>
