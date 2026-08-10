@@ -3,7 +3,9 @@ package com.dji.recreate2.geo
 import com.dji.recreate2.geo.CameraGeolocator.GeoResult
 import com.dji.recreate2.gimbal.CameraProjection
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -290,6 +292,138 @@ class CameraGeolocatorTest {
     private fun assertRefused(gimbalPitch: Double, elevationOffset: Double = 0.0) {
         val result = locate(gimbalPitch = gimbalPitch, elevationOffset = elevationOffset)
         assertTrue("expected a refusal, got $result", result is GeoResult.Refused)
+    }
+
+
+    // ---------------------------------------------------------------- footprint
+
+    @Test
+    fun `a nadir view produces a footprint centred on the aircraft`() {
+        // THE BUG this exposed. Looking straight down, every pixel below centre is past 90
+        // degrees of depression - the ray has crossed nadir. Without mirroring it, tan() went
+        // negative and the most common ISR camera position produced no footprint at all.
+        val fp = CameraGeolocator.footprint(
+            LAT, LON, 100.0, 0.0, -90.0, 0.0, 42.0, 26.86
+        )!!
+
+        assertEquals(4, fp.corners.size)
+        assertFalse("a nadir view is not truncated", fp.truncated)
+
+        val (north, east) = GeoMath.toNorthEast(LAT, LON, fp.centre.first, fp.centre.second)
+        assertEquals("the centre sits under the aircraft", 0.0, north, 0.5)
+        assertEquals(0.0, east, 0.5)
+    }
+
+    @Test
+    fun `a nadir footprint is symmetric about the aircraft`() {
+        val fp = CameraGeolocator.footprint(LAT, LON, 100.0, 0.0, -90.0, 0.0, 42.0, 26.86)!!
+        val offsets = fp.corners.map { GeoMath.toNorthEast(LAT, LON, it.first, it.second) }
+
+        // Every corner the same distance out, and they sum to roughly zero.
+        val ranges = offsets.map { Math.hypot(it.first, it.second) }
+        assertEquals(ranges.first(), ranges.max(), 0.5)
+        assertEquals(0.0, offsets.sumOf { it.first }, 0.5)
+        assertEquals(0.0, offsets.sumOf { it.second }, 0.5)
+    }
+
+    @Test
+    fun `an oblique view is a trapezoid with the far edge further out`() {
+        val fp = CameraGeolocator.footprint(LAT, LON, 100.0, 0.0, -45.0, 0.0, 42.0, 26.86)!!
+
+        // Near corner depression 71.86 -> 32.76 m; far corner 18.14 -> 305.23 m.
+        assertEquals(32.76, fp.nearEdgeM, 0.01)
+        assertEquals(305.23, fp.farEdgeM, 0.01)
+        assertTrue(fp.farEdgeM > fp.nearEdgeM * 5)
+    }
+
+    @Test
+    fun `the footprint centre equals the centre pixel fix`() {
+        // The pin tying the coverage overlay to tap-to-designate. If these ever disagree the
+        // operator has two answers for the same pixel and no way to tell which is right.
+        val fp = CameraGeolocator.footprint(LAT, LON, 100.0, 30.0, -50.0, 15.0, 42.0, 26.86)!!
+        val fix = fixOrFail(droneYaw = 30.0, gimbalPitch = -50.0, gimbalYaw = 15.0)
+
+        assertEquals(fix.lat, fp.centre.first, 1e-9)
+        assertEquals(fix.lon, fp.centre.second, 1e-9)
+    }
+
+    @Test
+    fun `a shallow far edge is clamped and reported as truncated`() {
+        // At gimbal -20 the far corner is 6.86 degrees ABOVE the horizon. Drawing to it would
+        // claim coverage of ground the camera never saw.
+        val fp = CameraGeolocator.footprint(LAT, LON, 100.0, 0.0, -20.0, 0.0, 42.0, 26.86)!!
+
+        assertTrue("the far edge ran past the usable angle", fp.truncated)
+        // Clamped to the 15 degree minimum, not stretched to the horizon.
+        assertEquals(100.0 / Math.tan(Math.toRadians(15.0)), fp.farEdgeM, 0.01)
+    }
+
+    @Test
+    fun `a view past the usable angle has no footprint`() {
+        // Null only when the NEAR corner - the steepest look, the bottom of the image - is itself
+        // past the usable angle. Then there is nothing worth drawing, and inventing a polygon
+        // would be worse than drawing none.
+        //
+        // The boundary is a gimbal pitch of about +11.9 degrees: above that even the bottom of
+        // the frame is within 15 degrees of the horizon.
+        assertNull(CameraGeolocator.footprint(LAT, LON, 100.0, 0.0, 12.0, 0.0, 42.0, 26.86))
+        assertNull(CameraGeolocator.footprint(LAT, LON, 100.0, 0.0, 30.0, 0.0, 42.0, 26.86))
+    }
+
+    @Test
+    fun `a camera just below horizontal still sees ground near the aircraft`() {
+        // At a pitch of -5 degrees the far edge is above the horizon but the BOTTOM of the frame
+        // still looks 31.9 degrees down. Refusing the whole footprint here would throw away the
+        // ground the camera genuinely covers, close in.
+        val fp = CameraGeolocator.footprint(LAT, LON, 100.0, 0.0, -5.0, 0.0, 42.0, 26.86)!!
+
+        assertTrue("the far edge is past the horizon", fp.truncated)
+        assertEquals(100.0 / Math.tan(Math.toRadians(31.86)), fp.nearEdgeM, 0.1)
+    }
+
+    @Test
+    fun `an oblique view well above the minimum is not truncated`() {
+        val fp = CameraGeolocator.footprint(LAT, LON, 100.0, 0.0, -60.0, 0.0, 42.0, 26.86)!!
+        assertFalse(fp.truncated)
+    }
+
+    @Test
+    fun `the footprint grows with altitude`() {
+        val low = CameraGeolocator.footprint(LAT, LON, 50.0, 0.0, -60.0, 0.0, 42.0, 26.86)!!
+        val high = CameraGeolocator.footprint(LAT, LON, 200.0, 0.0, -60.0, 0.0, 42.0, 26.86)!!
+
+        assertTrue(high.farEdgeM > low.farEdgeM * 3.5)
+        assertEquals(4.0, high.nearEdgeM / low.nearEdgeM, 0.01)
+    }
+
+    @Test
+    fun `the terrain offset moves the footprint like it moves a fix`() {
+        val flat = CameraGeolocator.footprint(LAT, LON, 100.0, 0.0, -60.0, 0.0, 42.0, 26.86)!!
+        val below = CameraGeolocator.footprint(
+            LAT, LON, 100.0, 0.0, -60.0, 0.0, 42.0, 26.86, targetElevationOffsetM = -50.0
+        )!!
+
+        assertEquals(1.5, below.nearEdgeM / flat.nearEdgeM, 0.001)
+    }
+
+    @Test
+    fun `missing telemetry produces no footprint`() {
+        assertNull(CameraGeolocator.footprint(Double.NaN, LON, 100.0, 0.0, -60.0, 0.0, 42.0, 26.86))
+        assertNull(CameraGeolocator.footprint(LAT, LON, Double.NaN, 0.0, -60.0, 0.0, 42.0, 26.86))
+        assertNull(CameraGeolocator.footprint(LAT, LON, 0.5, 0.0, -60.0, 0.0, 42.0, 26.86))
+        assertNull(CameraGeolocator.footprint(0.0, 0.0, 100.0, 0.0, -60.0, 0.0, 42.0, 26.86))
+    }
+
+    @Test
+    fun `a nadir tap below centre resolves instead of failing`() {
+        // The same crossed-nadir case through the tap path. This used to be refused with
+        // "the geometry does not give a target point".
+        val result = CameraGeolocator.locate(
+            LAT, LON, 100.0, 0.0, -90.0, 0.0,
+            normX = 0.5f, normY = 0.9f,
+            halfFovHDeg = 42.0, halfFovVDeg = 26.86
+        )
+        assertTrue("got: $result", result is GeoResult.Fix)
     }
 
     private companion object {
